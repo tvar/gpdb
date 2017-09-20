@@ -58,7 +58,7 @@ the steps of how to build the optimizer. For the most up-to-date way of
 building, see the README in the
 [ORCA repository](https://github.com/greenplum-db/gporca).
 
-    ```
+
     git clone https://github.com/greenplum-db/gporca
     mkdir gporca/build
     cd gporca/build
@@ -66,11 +66,11 @@ building, see the README in the
     make
     make install
     cd ../..
-    ```
-    **Note**: Get the latest ORCA `git pull --ff-only` if you see an error message like below:
-    ```
+
+**Note**: Get the latest ORCA `git pull --ff-only` if you see an error message like below:
+
     checking Checking ORCA version... configure: error: Your ORCA version is expected to be 2.33.XXX
-    ```
+
 
 ### Build the database
 Note: If you are using CentOS, first make sure that you add `/usr/local/lib` and `/usr/local/lib64` to `/etc/ld.so.conf`, run command `ldconfig`.
