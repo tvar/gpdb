@@ -39,6 +39,15 @@ Follow [these linux steps](README.linux.md) for getting your system ready for GP
 
 <a name="buildOrca"></a>
 ### Build the optimizer
+#### Automatically with Conan dependency manager
+
+1. cd gpdb/depends
+2. conan remote add conan-gpdb https://api.bintray.com/conan/greenplum-db/gpdb-oss
+3. conan install --build
+   * This command will fetch the ORCA and xerces artifacts from bintray repository, build and install them.
+   * The header and library files will be copied to the location specified by imports section of conanfile.txt in depends directory.
+     In case, the files should be copied elsewhere, please change the location.
+
 #### Manually
 Currently GPDB assumes ORCA libraries and headers are available in the targeted
 system and tries to build with ORCA by default.  For your convenience, here are
@@ -59,14 +68,6 @@ building, see the README in the
     ```
     checking Checking ORCA version... configure: error: Your ORCA version is expected to be 2.33.XXX
     ```
-#### Using conan dependency manager
-
-1. cd gpdb/depends
-2. conan remote add conan-gpdb https://api.bintray.com/conan/greenplum-db/gpdb-oss
-3. conan install --build
-   * This command will fetch the ORCA and xerces artifacts from bintray repository, build and install them.
-   * The header and library files will be copied to the location specified by imports section of conanfile.txt in depends directory.
-     In case, the files should be copied elsewhere, please change the location.
 
 ### Build the database
 Note: If you are using CentOS, first make sure that you add `/usr/local/lib` and `/usr/local/lib64` to `/etc/ld.so.conf`, run command `ldconfig`.
@@ -75,8 +76,8 @@ Note: If you are using CentOS, first make sure that you add `/usr/local/lib` and
 ./configure --with-perl --with-python --with-libxml --prefix=/usr/local/gpdb
 
 # Compile and install
-make
-make install
+make -j8
+make -j8 install
 
 # Bring in greenplum environment into your running shell
 source /usr/local/gpdb/greenplum_path.sh
@@ -86,12 +87,6 @@ source /usr/local/gpdb/greenplum_path.sh
 cd gpAux/gpdemo
 make create-demo-cluster
 source gpdemo-env.sh
-```
-
-Compilation can be sped up with parallelization. Instead of `make`, consider:
-
-```
-make -j8
 ```
 
 The directory and the TCP ports for the demo cluster can be changed on the fly.
