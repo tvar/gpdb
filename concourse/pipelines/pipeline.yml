@@ -59,6 +59,12 @@ groups:
   - QP_runaway-query
   - QP_optimizer-functional
   - validate_pipeline
+  - gate_compile
+  - gate_nightly
+  - gate_icw
+  - gate_cs_misc
+  - gate_mm_misc
+  - gate_general_misc
 
 - name: Release
   jobs:
@@ -793,19 +799,18 @@ jobs:
         file: gpdb_artifacts/bin_gpdb.tar.gz
 
 # Stage 2a: Run regression tests against binaries (make installcheck-world and similar)
-
 - name: icw_planner_centos6
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: binary_swap_gpdb
       resource: binary_swap_gpdb_centos6
-      passed: [compile_gpdb_binary_swap_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: ic_gpdb
@@ -822,10 +827,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: ic_gpdb
@@ -841,10 +846,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: ic_gpdb
@@ -861,10 +866,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos7]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos7
-      passed: [compile_gpdb_centos7]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-7
   - task: ic_gpdb
@@ -881,10 +886,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_sles11]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_sles11
-      passed: [compile_gpdb_sles11]
+      passed: [gate_compile]
       trigger: true
     - get: sles-gpdb-dev-11-beta
   - task: ic_gpdb
@@ -900,10 +905,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: ic_gpdb
@@ -919,7 +924,7 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_aix7_remote]
+      passed: [compile_gpdb_aix7_remote, compile_gpdb_centos6]
     - get: installer_aix7_gpdb_clients
       passed: [compile_gpdb_aix7_remote]
     - get: installer_aix7_gpdb_loaders
@@ -957,10 +962,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -990,10 +995,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: MU_check_centos
@@ -1006,10 +1011,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: regression_tests_gpcloud
@@ -1026,10 +1031,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: singlecluster
       resource: singlecluster-HDP
@@ -1052,10 +1057,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: gpperfmon
@@ -1090,10 +1095,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_compile]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1126,10 +1131,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_nightly]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_nightly]
       trigger: {{reduced-frequency-trigger-flag}}
     - get: gpdb4_binary
       resource: bin_gpdb4_centos6
@@ -1178,10 +1183,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1251,10 +1256,10 @@ jobs:
   - aggregate:
     - get: gpdb_src
       params: {submodules: none}
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: centos-gpdb-dev-6
   - aggregate:
@@ -1288,10 +1293,10 @@ jobs:
   - aggregate:
     - get: gpdb_src
       params: {submodules: none}
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: centos-gpdb-dev-6
   - aggregate:
@@ -1339,10 +1344,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1370,10 +1375,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1401,10 +1406,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1434,10 +1439,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1468,10 +1473,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1502,10 +1507,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_general_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1536,10 +1541,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1570,10 +1575,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1604,10 +1609,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1638,10 +1643,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1672,10 +1677,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1706,10 +1711,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1740,10 +1745,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1774,10 +1779,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1808,10 +1813,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: bin_gpdb
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       resource: bin_gpdb_centos6
     - get: centos-gpdb-dev-6
   - task: memory-accounting
@@ -1827,9 +1832,9 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
     - get: bin_gpdb
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
       resource: bin_gpdb_centos6
     - get: centos-gpdb-dev-6
@@ -1840,7 +1845,7 @@ jobs:
       TARGET_OS: centos
       TARGET_OS_VERSION: 6
 
-# Stage 2b: Packaging
+## Stage 2b: Packaging
 
 - name: gpdb_rc_packaging_centos
   plan:
@@ -2029,10 +2034,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -2063,10 +2068,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_cs_misc]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -2090,7 +2095,7 @@ jobs:
       <<: *debug_sleep
   - *ccp_destroy
 
-# Stage 3: Trigger jobs that rely on packaging
+## Stage 3: Trigger jobs that rely on packaging
 - name: MM_gpexpand
   plan:
   - get: nightly-trigger
@@ -2099,20 +2104,20 @@ jobs:
     - get: gpdb_src
       params: {submodules: none}
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_nightly]
       trigger: {{reduced-frequency-trigger-flag}}
     - get: gpdb_src_tinc_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_nightly]
     - get: installer_rhel6_gpdb_rc
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_nightly]
     - get: qautils_rhel6_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_nightly]
     - get: gpdb_src_behave_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_nightly]
   - task: trigger_pulse
     tags: ["gpdb5-pulse-worker"]
     file: gpdb_src/ci/pulse/api/trigger_pulse.yml
@@ -2158,20 +2163,20 @@ jobs:
     - get: gpdb_src
       params: {submodules: none}
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_compile]
       trigger: true
     - get: gpdb_src_tinc_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_compile]
     - get: installer_rhel6_gpdb_rc
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_compile]
     - get: qautils_rhel6_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_compile]
     - get: gpdb_src_behave_tarball
       tags: ["gpdb5-pulse-worker"]
-      passed: [gpdb_rc_packaging_centos]
+      passed: [gate_compile]
   - task: trigger_pulse
     tags: ["gpdb5-pulse-worker"]
     file: gpdb_src/ci/pulse/api/trigger_pulse.yml
@@ -2247,10 +2252,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: bin_gpdb
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       resource: bin_gpdb_centos6
     - get: centos-gpdb-dev-6
   - task: runaway-query
@@ -2267,10 +2272,10 @@ jobs:
   - aggregate:
     - get: gpdb_src
       params: {submodules: none}
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
+      passed: [gate_mm_misc]
       trigger: true
     - get: centos-gpdb-dev-6
   - aggregate:
@@ -2366,3 +2371,151 @@ jobs:
     - QP_optimizer-functional
     - validate_pipeline
 
+# Gatekeeper jobs - at bottom for ease of removal
+
+- name: gate_compile
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed:
+      - compile_gpdb_centos6
+      - compile_gpdb_open_source_centos6
+      - compile_gpdb_centos7
+      - compile_gpdb_sles11
+      - compile_gpdb_ubuntu16
+      - compile_gpdb_windows_cl
+      - compile_gpdb_aix7_remote
+      - validate_pipeline
+      - gpdb_rc_packaging_centos
+#      - gpdb_rc_packaging_sles
+      trigger: true
+    - get: bin_gpdb_sles11
+      passed:
+      - compile_gpdb_sles11
+    - get: binary_swap_gpdb_centos6
+      passed:
+      - compile_gpdb_binary_swap_centos6
+    - get: bin_gpdb_centos7
+      passed:
+      - compile_gpdb_centos7
+    - get: bin_gpdb_centos6
+      passed:
+      - compile_gpdb_centos6
+    - get: gpdb_src_tinc_tarball
+      passed:
+      - gpdb_rc_packaging_centos
+    - get: installer_rhel6_gpdb_rc
+      passed:
+      - gpdb_rc_packaging_centos
+    - get: qautils_rhel6_tarball
+      passed:
+      - gpdb_rc_packaging_centos
+    - get: gpdb_src_behave_tarball
+      passed:
+      - gpdb_rc_packaging_centos
+
+- name: gate_nightly
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed:
+      - gate_compile
+      trigger: true
+    - get: bin_gpdb_centos6
+      passed:
+      - gate_compile
+    - get: binary_swap_gpdb_centos6
+      passed:
+      - gate_compile
+    - get: gpdb_src_tinc_tarball
+      passed:
+      - gate_compile
+    - get: installer_rhel6_gpdb_rc
+      passed:
+      - gate_compile
+    - get: qautils_rhel6_tarball
+      passed:
+      - gate_compile
+    - get: gpdb_src_behave_tarball
+      passed:
+      - gate_compile
+
+- name: gate_icw
+  plan:
+  - get: gpdb_src
+    passed:
+    - icw_planner_centos6
+    - icw_gporca_centos6
+    - icw_gporca_centos7
+    - icw_gporca_sles11
+    - icw_planner_ictcp_centos6
+    - icw_gporca_centos6_gpos_memory
+    - DPM_gptransfer-5x-to-5x
+    - DPM_backup-restore
+    - mpp_interconnect
+    trigger: true
+  - get: bin_gpdb_centos6
+    passed:
+    - icw_planner_centos6
+    - icw_gporca_centos6
+    - icw_planner_ictcp_centos6
+    - icw_gporca_centos6_gpos_memory
+    - DPM_backup-restore
+  - get: bin_gpdb_centos7
+    passed:
+    - icw_gporca_centos7
+  - get: bin_gpdb_sles11
+    passed:
+    - icw_gporca_sles11
+
+- name: gate_cs_misc
+  plan:
+  - get: gpdb_src
+    passed: &gate_cs_misc_passed
+    - fts
+    - storage
+    - cs_walrep_1
+    - cs_walrep_2
+    - cs_pg_twophase_01_10
+    - cs_pg_twophase_11_20
+    - cs_pg_twophase_21_30
+    - cs_pg_twophase_31_40
+    - cs_pg_twophase_41_49
+    - cs_pg_twophase_switch_01_12
+    - cs_pg_twophase_switch_13_24
+    - cs_pg_twophase_switch_25_33
+    trigger: true
+  - get: bin_gpdb_centos6
+    passed: *gate_cs_misc_passed
+
+- name: gate_mm_misc
+  plan:
+  - get: gpdb_src
+    passed: &gate_mm_misc_passed
+    - MU_check_centos
+    - MM_analyzedb
+    - MM_gpinitsystem
+    - MM_gpperfmon
+    - MM_gpcheck
+    - MM_pt-rebuild
+    - MM_gpinitstandby
+    - MM_gppkg
+    - MM_gprecoverseg
+    trigger: true
+  - get: bin_gpdb_centos6
+    passed: *gate_mm_misc_passed
+
+- name: gate_general_misc
+  plan:
+  - get: gpdb_src
+    passed: &gate_general_misc
+    - QP_memory-accounting
+    - regression_tests_gpcloud_centos
+    - regression_tests_gphdfs_centos
+    - regression_tests_pxf_centos
+    - QP_runaway-query
+    - QP_optimizer-functional
+    - MM_gpcheckcat
+    trigger: true
+  - get: bin_gpdb_centos6
+    passed: *gate_general_misc
