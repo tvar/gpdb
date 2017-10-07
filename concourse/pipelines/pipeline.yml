@@ -65,12 +65,13 @@ groups:
   - gate_cs_misc
   - gate_mm_misc
   - gate_general_misc
-
+  - gate_misc1
+  - gate_longrunning
 - name: Release
   jobs:
   - Release_Candidate
 
-- name: Remaining Pulse
+- name: Remaining_Pulse
   jobs:
   - MM_gpcheckcat
   - MM_gpexpand
@@ -80,7 +81,7 @@ groups:
   - cs-aoco-compression
   - mpp_interconnect
 
-- name: Adopted CCP
+- name: Adopted_CCP
   jobs:
   - cs_walrep_1
   - cs_walrep_2
@@ -95,9 +96,99 @@ groups:
   - MM_gprecoverseg
   - DPM_backup_43_restore_5
 
-- name: Experimental Tests
+- name: Experimental_Tests
   jobs:
   - icw_gporca_centos6_gpos_memory
+
+- name: G:Compile
+  jobs:
+  - compile_gpdb_centos6
+  - compile_gpdb_open_source_centos6
+  - compile_gpdb_centos7
+  - compile_gpdb_sles11
+  - compile_gpdb_ubuntu16
+  - compile_gpdb_windows_cl
+  - compile_gpdb_aix7_remote
+  - client_loader_remote_test_aix
+  - validate_pipeline
+  - gpdb_rc_packaging_centos
+  - gate_compile
+
+- name: G:ICW
+  jobs:
+  - icw_planner_centos6
+  - icw_gporca_centos6
+  - icw_gporca_centos7
+  - icw_gporca_sles11
+  - icw_planner_ictcp_centos6
+  - icw_gporca_centos6_gpos_memory
+  - fts
+  - storage
+  - gate_compile
+  - gate_icw
+
+- name: G:Pulse_Nighly
+  jobs:
+  - DPM_backup_43_restore_5
+  - MM_gpexpand
+  - DPM_gptransfer-5x-to-5x
+  - DPM_gptransfer-43x-to-5x
+  - cs-aoco-compression
+  - mpp_interconnect
+  - cs-filerep-schema-topology-crashrecov
+  - gate_compile
+  - gate_nightly
+
+- name: G:CS_Misc
+  jobs:
+  - cs_walrep_1
+  - cs_walrep_2
+  - cs_pg_twophase_01_10
+  - cs_pg_twophase_11_20
+  - cs_pg_twophase_21_30
+  - cs_pg_twophase_31_40
+  - cs_pg_twophase_41_49
+  - cs_pg_twophase_switch_01_12
+  - cs_pg_twophase_switch_13_24
+  - cs_pg_twophase_switch_25_33
+  - gate_compile
+  - gate_longrunning
+  - gate_cs_misc
+
+- name: G:MM_Misc
+  jobs:
+  - MU_check_centos
+  - MM_analyzedb
+  - MM_gpinitsystem
+  - MM_gpperfmon
+  - MM_gpcheck
+  - MM_pt-rebuild
+  - MM_gpinitstandby
+  - MM_gppkg
+  - MM_gprecoverseg
+  - gate_icw
+  - gate_mm_misc
+
+- name: G:General
+  jobs:
+  - QP_memory-accounting
+  - regression_tests_gpcloud_centos
+  - regression_tests_gphdfs_centos
+  - regression_tests_pxf_centos
+  - QP_runaway-query
+  - QP_optimizer-functional
+  - MM_gpcheckcat
+  - gate_mm_misc
+  - gate_general_misc
+
+
+- name: G:FileRep
+  jobs:
+  - cs_filerep_e2e_full_primary
+  - cs_filerep_e2e_incr_primary
+  - cs_filerep_e2e_full_mirror
+  - cs_filerep_e2e_incr_mirror
+  - gate_general_misc
 
 ## ======================================================================
 ## resource types
@@ -995,10 +1086,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: MU_check_centos
@@ -1057,10 +1148,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
       trigger: true
     - get: centos-gpdb-dev-6
   - task: gpperfmon
@@ -1183,10 +1274,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1256,10 +1347,10 @@ jobs:
   - aggregate:
     - get: gpdb_src
       params: {submodules: none}
-      passed: [gate_icw]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - aggregate:
@@ -1293,10 +1384,10 @@ jobs:
   - aggregate:
     - get: gpdb_src
       params: {submodules: none}
-      passed: [gate_icw]
+      passed: [gate_compile]
     - get: bin_gpdb
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_compile]
       trigger: true
     - get: centos-gpdb-dev-6
   - aggregate:
@@ -1344,10 +1435,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1375,10 +1466,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1541,10 +1632,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1575,10 +1666,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1609,10 +1700,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1643,10 +1734,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1677,10 +1768,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1711,10 +1802,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1745,10 +1836,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -1779,10 +1870,10 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
-      passed: [gate_icw]
+      passed: [gate_longrunning]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_icw]
+      passed: [gate_longrunning]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -2068,10 +2159,10 @@ jobs:
       params:
         submodules:
         - gpMgmt/bin/pythonSrc/ext
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
     - get: gpdb_binary
       resource: bin_gpdb_centos6
-      passed: [gate_cs_misc]
+      passed: [gate_icw]
       trigger: true
     - get: ccp_src
     - get: centos-gpdb-dev-6
@@ -2384,7 +2475,7 @@ jobs:
       - compile_gpdb_sles11
       - compile_gpdb_ubuntu16
       - compile_gpdb_windows_cl
-      - compile_gpdb_aix7_remote
+      #- compile_gpdb_aix7_remote
       - validate_pipeline
       - gpdb_rc_packaging_centos
 #      - gpdb_rc_packaging_sles
@@ -2440,6 +2531,30 @@ jobs:
       passed:
       - gate_compile
 
+- name: gate_longrunning
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed:
+      - gate_compile
+      trigger: true
+    - get: bin_gpdb_centos6
+      passed:
+      - gate_compile
+
+- name: gate_misc1
+  plan:
+  - get: gpdb_src
+    passed: &gate_misc1_passed
+    - DPM_gptransfer-5x-to-5x
+    - DPM_backup-restore
+    - mpp_interconnect
+    - cs-filerep-schema-topology-crashrecov
+    trigger: true
+  - get: bin_gpdb_centos6
+    passed:
+    - DPM_backup-restore
+
 - name: gate_icw
   plan:
   - get: gpdb_src
@@ -2450,9 +2565,8 @@ jobs:
     - icw_gporca_sles11
     - icw_planner_ictcp_centos6
     - icw_gporca_centos6_gpos_memory
-    - DPM_gptransfer-5x-to-5x
-    - DPM_backup-restore
-    - mpp_interconnect
+    - fts
+    - storage
     trigger: true
   - get: bin_gpdb_centos6
     passed:
@@ -2460,7 +2574,6 @@ jobs:
     - icw_gporca_centos6
     - icw_planner_ictcp_centos6
     - icw_gporca_centos6_gpos_memory
-    - DPM_backup-restore
   - get: bin_gpdb_centos7
     passed:
     - icw_gporca_centos7
@@ -2472,8 +2585,6 @@ jobs:
   plan:
   - get: gpdb_src
     passed: &gate_cs_misc_passed
-    - fts
-    - storage
     - cs_walrep_1
     - cs_walrep_2
     - cs_pg_twophase_01_10
