@@ -22,12 +22,17 @@
 #include "postgres.h"
 #include "utils/builtins.h"
 #include "lz4.h"
+#include "quicklz.h"
 #include "catalog/pg_compression.h"
 #include <stddef.h>
-
+// #define lz4
 size_t
 dsz(size_t input){
+#ifdef lz4
   return LZ4_COMPRESSBOUND(input);
+#else
+  return input + 400;
+#endif
 }
 
 Datum
@@ -38,8 +43,19 @@ quicklz_constructor(PG_FUNCTION_ARGS)
    * It is passed as NULL */
 
   StorageAttributes *sa = PG_GETARG_POINTER(1);
-  CompressionState *cs	   = palloc0(sizeof(CompressionState));
   bool		   compress = PG_GETARG_BOOL(2);
+
+  CompressionState *cs	   = palloc0(sizeof(CompressionState));
+
+#ifndef lz4
+  if (compress) {
+      qlz_state_compress	   *state = palloc0(sizeof(qlz_state_compress));
+      cs->opaque = state;
+  } else {
+      qlz_state_decompress *state = palloc0(sizeof(qlz_state_decompress));
+      cs->opaque = state;
+    }
+#endif
 
   cs->desired_sz = dsz;
   /*if (compress) {
@@ -59,6 +75,13 @@ quicklz_constructor(PG_FUNCTION_ARGS)
 Datum
 quicklz_destructor(PG_FUNCTION_ARGS)
 {
+  CompressionState *cs = PG_GETARG_POINTER(0);
+
+  if (cs != NULL && cs->opaque != NULL)
+  {
+          pfree(cs->opaque);
+  }
+
   PG_RETURN_VOID();
 }
 
@@ -70,8 +93,13 @@ quicklz_compress(PG_FUNCTION_ARGS)
   void			 *dst	  = PG_GETARG_POINTER(2);
   int32			 dst_sz   = PG_GETARG_INT32(3);
   int32			*dst_used = PG_GETARG_POINTER(4);
-
+#ifdef lz4
   *dst_used = LZ4_compress_default((char *) src, (char *) dst, src_sz, dst_sz);
+#else
+  CompressionState *cs	   = (CompressionState *) PG_GETARG_POINTER(5);
+  qlz_state_compress *state = (qlz_state_compress *) cs->opaque;
+  *dst_used = qlz_compress(src, dst, src_sz, state);
+#endif
 
 
   if (*dst_used <= 0)
@@ -92,8 +120,14 @@ quicklz_decompress(PG_FUNCTION_ARGS)
   int32		   *dst_used = PG_GETARG_POINTER(4);
 
   Insist(src_sz > 0 && dst_sz > 0);
-
+#ifdef lz4
   *dst_used = LZ4_decompress_safe(src, (char *)dst, src_sz, dst_sz);
+#else
+  CompressionState *cs	   = (CompressionState *) PG_GETARG_POINTER(5);
+  qlz_state_decompress *state = (qlz_state_decompress *) cs->opaque;
+  *dst_used = qlz_decompress(src, dst, state);
+#endif
+
 
   if (*dst_used <= 0)
   {
