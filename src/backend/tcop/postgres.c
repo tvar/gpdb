@@ -101,6 +101,11 @@
 #include "postmaster/primary_mirror_mode.h"
 #include "utils/vmem_tracker.h"
 
+#ifdef USE_ORCA
+extern void SignalInterruptGPOPT(int signal);
+extern void ResetInterruptsGPOPT(void);
+#endif
+
 extern int	optind;
 extern char *optarg;
 
@@ -581,6 +586,8 @@ static int
 ReadCommand(StringInfo inBuf)
 {
 	int			result;
+
+	SIMPLE_FAULT_INJECTOR(BeforeReadCommand);
 
 	if (whereToSendOutput == DestRemote)
 		result = SocketBackend(inBuf);
@@ -3533,6 +3540,13 @@ StatementCancelHandler(SIGNAL_ARGS)
 		QueryCancelPending = true;
 		QueryCancelCleanup = true;
 
+#ifdef USE_ORCA
+		if (Gp_role == GP_ROLE_DISPATCH)
+		{
+			SignalInterruptGPOPT(postgres_signal_arg);
+		}
+#endif
+
 		/*
 		 * If it's safe to interrupt, and we're waiting for a lock, service
 		 * the interrupt immediately.  No point in interrupting if we're
@@ -3664,6 +3678,13 @@ ProcessInterrupts(const char* filename, int lineno)
 		gp_simex_run = 0;
 	}
 #endif   /* USE_TEST_UTILS */
+
+#ifdef USE_ORCA
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		ResetInterruptsGPOPT();
+	}
+#endif
 
 	InterruptPending = false;
 	if (ProcDiePending)
@@ -4874,6 +4895,13 @@ PostgresMain(int argc, char *argv[],
             gp_command_count = 0;
 
 		/*
+		 * Do deactiving and runaway detecting before ReadyForQuery(),
+		 * so any OOM errors of current query will not muddle following
+		 * queries
+		 */
+		IdleTracker_DeactivateProcess();
+
+		/*
 		 * (1) If we've reached idle state, tell the frontend we're ready for
 		 * a new query.
 		 *
@@ -4952,7 +4980,6 @@ PostgresMain(int argc, char *argv[],
 					elog(FATAL, "could not set timer for client wait timeout");
 		}
 
-		IdleTracker_DeactivateProcess();
 		firstchar = ReadCommand(&input_message);
 		IdleTracker_ActivateProcess();
 

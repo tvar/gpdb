@@ -109,6 +109,7 @@ static const char *assign_debug_dtm_action_protocol(const char *newval,
 								 bool doit, GucSource source);
 static const char *assign_gp_log_format(const char *value, bool doit,
 					 GucSource source);
+static const char *assign_optimizer_join_order_options(const char *newval, bool doit, GucSource source);
 
 /* Helper function for guc setter */
 extern const char *gpvars_assign_gp_resqueue_priority_default_value(const char *newval,
@@ -353,6 +354,7 @@ static char *gp_log_format_string;
 static char *gp_workfile_caching_loglevel_str;
 static char *gp_sessionstate_loglevel_str;
 static char *explain_memory_verbosity_str;
+static char *optimizer_join_order_str;
 
 /* Backoff-related GUCs */
 bool		gp_enable_resqueue_priority;
@@ -365,6 +367,7 @@ char	   *gp_resqueue_priority_default_value;
 bool		gp_debug_resqueue_priority = false;
 
 /* Resource group GUCs */
+int			gp_resource_group_cpu_priority;
 double		gp_resource_group_cpu_limit;
 double		gp_resource_group_memory_limit;
 
@@ -551,8 +554,9 @@ double		optimizer_sort_factor;
 
 /* Optimizer hints */
 int			optimizer_join_arity_for_associativity_commutativity;
-int         optimizer_array_expansion_threshold;
-int         optimizer_join_order_threshold;
+int			optimizer_array_expansion_threshold;
+int			optimizer_join_order_threshold;
+int			optimizer_join_order;
 int			optimizer_cte_inlining_bound;
 bool		optimizer_force_multistage_agg;
 bool		optimizer_force_three_stage_scalar_dqa;
@@ -3504,6 +3508,15 @@ struct config_int ConfigureNamesInt_gp[] =
 	},
 
 	{
+		{"gp_resource_group_cpu_priority", PGC_POSTMASTER, RESOURCES,
+			gettext_noop("Sets the cpu priority for postgres processes when resource group is enabled."),
+			NULL
+		},
+		&gp_resource_group_cpu_priority,
+		10, 1, 256, NULL, NULL
+	},
+
+	{
 		{"max_statement_mem", PGC_SUSET, RESOURCES_MEM,
 			gettext_noop("Sets the maximum value for statement_mem setting."),
 			NULL,
@@ -4641,7 +4654,7 @@ struct config_int ConfigureNamesInt_gp[] =
 		{"optimizer_join_arity_for_associativity_commutativity", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Maximum number of children n-ary-join have without disabling commutativity and associativity transform"),
 			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+			GUC_NOT_IN_SAMPLE
 		},
 		&optimizer_join_arity_for_associativity_commutativity,
 		7, 0, INT_MAX, NULL, NULL
@@ -4875,7 +4888,7 @@ struct config_real ConfigureNamesReal_gp[] =
 			NULL
 		},
 		&gp_resource_group_memory_limit,
-		0.9, 0.0001, 1.0, NULL, NULL
+		0.7, 0.0001, 1.0, NULL, NULL
 	},
 
 	{
@@ -5556,6 +5569,16 @@ struct config_string ConfigureNamesString_gp[] =
 		GP_VERSION, NULL, NULL
 	},
 
+	{
+		{"optimizer_join_order", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("Set optimizer join heuristic model."),
+			gettext_noop("Valid values are query, greedy and exhaustive"),
+			GUC_NOT_IN_SAMPLE
+		},
+		&optimizer_join_order_str,
+		"exhaustive", assign_optimizer_join_order_options, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL
@@ -5834,6 +5857,33 @@ assign_explain_memory_verbosity(const char *newval, bool doit, GucSource source)
 	{
 		if (doit)
 			explain_memory_verbosity = EXPLAIN_MEMORY_VERBOSITY_DETAIL;
+	}
+	else
+	{
+		printf("Unknown memory verbosity.");
+		return NULL;
+	}
+
+	return newval;
+}
+
+static const char *
+assign_optimizer_join_order_options(const char *newval, bool doit, GucSource source)
+{
+	if (pg_strcasecmp(newval, "query") == 0)
+	{
+		if (doit)
+			optimizer_join_order = JOIN_ORDER_IN_QUERY;
+	}
+	else if (pg_strcasecmp(newval, "greedy") == 0)
+	{
+		if (doit)
+			optimizer_join_order = JOIN_ORDER_GREEDY_SEARCH;
+	}
+	else if (pg_strcasecmp(newval, "exhaustive") == 0)
+	{
+		if (doit)
+			optimizer_join_order = JOIN_ORDER_EXHAUSTIVE_SEARCH;
 	}
 	else
 	{

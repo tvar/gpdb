@@ -77,8 +77,8 @@
 #include "pgstat.h"
 #include "access/distributedlog.h"
 #include "nodes/makefuncs.h"     /* makeRangeVar */
-#include "gp-libpq-fe.h"
-#include "gp-libpq-int.h"
+#include "libpq-fe.h"
+#include "libpq-int.h"
 
 
 /*
@@ -4482,7 +4482,7 @@ move_chain_tuple(Relation rel,
 	/* Create index entries for the moved tuple */
 	if (ec->resultRelInfo->ri_NumIndices > 0)
 	{
-		ExecStoreGenericTuple(&newtup, ec->slot, false);
+		ExecStoreHeapTuple(&newtup, ec->slot, InvalidBuffer, false);
 		ExecInsertIndexTuples(ec->slot, &(newtup.t_self), ec->estate, true);
 		ResetPerTupleExprContext(ec->estate);
 	}
@@ -4589,7 +4589,7 @@ move_plain_tuple(Relation rel,
 	/* insert index' tuples if needed */
 	if (ec->resultRelInfo->ri_NumIndices > 0)
 	{
-		ExecStoreGenericTuple(&newtup, ec->slot, false);
+		ExecStoreHeapTuple(&newtup, ec->slot, InvalidBuffer, false);
 		ExecInsertIndexTuples(ec->slot, &(newtup.t_self), ec->estate, true);
 		ResetPerTupleExprContext(ec->estate);
 	}

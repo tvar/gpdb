@@ -54,6 +54,7 @@
 #include "storage/bufpage.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
+#include "storage/latch.h"
 #include "storage/pmsignal.h"
 #include "storage/procarray.h"
 #include "storage/smgr.h"
@@ -717,40 +718,6 @@ void HandleStartupProcInterrupts(void);
 static bool CheckForStandbyTrigger(void);
 
 static void GetXLogCleanUpTo(XLogRecPtr recptr, uint32 *_logId, uint32 *_logSeg);
-
-/*
- * Whether we need to always generate transaction log (XLOG), or if we can
- * bypass it and get better performance.
- *
- * For GPDB, we currently do not support XLogArchivingActive(), so we don't
- * use it as a condition.
- */
-bool XLog_CanBypassWal(void)
-{
-#ifdef USE_SEGWALREP
-	/*
-	 * Wal replication enabled for segments, shouldn't skip anything from
-	 * wal.
-	 */
-	return false;
-#else
-	/*
-	 * We need the XLOG to be transmitted to the standby master since it is
-	 * not using FileRep technology yet. Master also could skip some of the
-	 * WAL operations for optimization when standby is not configured, but for
-	 * now we lean towards safety.
-	 */
-	return GpIdentity.segindex != MASTER_CONTENT_ID;
-#endif
-}
-
-/*
- * For FileRep code that doesn't have the Bypass WAL logic yet.
- */
-bool XLog_UnconvertedCanBypassWal(void)
-{
-	return false;
-}
 
 static char *XLogContiguousCopy(
 	XLogRecord 		*record,
@@ -3024,15 +2991,16 @@ XLogFileClose(void)
 
 	/*
 	 * WAL segment files will not be re-read in normal operation, so we advise
-	 * OS to release any cached pages.	But do not do so if WAL archiving is
-	 * active, because archiver process could use the cache to read the WAL
-	 * segment.
+	 * OS to release any cached pages.	But do not do so if WAL archiving or
+	 * streaming is active, because archiver process could use the cache to
+	 * read the WAL segment. Also, don't bother with it if we are using
+	 * O_DIRECT, since the kernel is presumably not caching in that case.
 	 *
 	 * While O_DIRECT works for O_SYNC, posix_fadvise() works for fsync() and
 	 * O_SYNC, and some platforms only have posix_fadvise().
 	 */
 #if defined(HAVE_DECL_POSIX_FADVISE) && defined(POSIX_FADV_DONTNEED)
-	if (!XLogArchivingActive())
+	if (!XLogIsNeeded())
 		posix_fadvise(openLogFile, 0, 0, POSIX_FADV_DONTNEED);
 #endif
 #endif   /* NOT_USED */
@@ -11141,6 +11109,13 @@ StartupProcTriggerHandler(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
+/* SIGUSR1: let latch facility handle the signal */
+static void
+StartupProcSigUsr1Handler(SIGNAL_ARGS)
+{
+	latch_sigusr1_handler();
+}
+
 /* SIGHUP: set flag to re-read config file at next convenient time */
 static void
 StartupProcSigHupHandler(SIGNAL_ARGS)
@@ -11230,7 +11205,7 @@ StartupProcessMain(int passNum)
 	pqsignal(SIGQUIT, startupproc_quickdie);		/* hard crash time */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
+	pqsignal(SIGUSR1, StartupProcSigUsr1Handler);
 	if (passNum == 1)
 		pqsignal(SIGUSR2, StartupProcTriggerHandler);
 	else
@@ -12103,16 +12078,6 @@ CheckPromoteSignal(bool do_unlink)
 }
 
 /*
- * Wake up startup process to replay newly arrived WAL, or to notice that
- * failover has been requested.
- */
-void
-WakeupRecovery(void)
-{
-	SetLatch(&XLogCtl->recoveryWakeupLatch);
-}
-
-/*
  * Put the current standby master dbid in the shared memory, which will
  * be looked up from mmxlog.
  */
@@ -12190,4 +12155,14 @@ GetXLogCleanUpTo(XLogRecPtr recptr, uint32 *_logId, uint32 *_logSeg)
 #ifndef USE_SEGWALREP
 	}
 #endif
+}
+
+/*
+ * Wake up startup process to replay newly arrived WAL, or to notice that
+ * failover has been requested.
+ */
+void
+WakeupRecovery(void)
+{
+	SetLatch(&XLogCtl->recoveryWakeupLatch);
 }

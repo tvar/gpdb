@@ -1209,6 +1209,8 @@ class GpArray:
 
             # Handle regular segments
             elif segdb.isSegmentQE():
+                if segdb.isSegmentMirror():
+                    self.__strategy = FAULT_STRATEGY_FILE_REPLICATION
                 self.addSegmentDb(segdb)
 
             else:
@@ -1455,7 +1457,7 @@ class GpArray:
         array = GpArray(segments, origSegments, strategy)
         array.__version = version
         array.recoveredSegmentDbids = recoveredSegmentDbids
-        array.setFaultStrategy(strategy)
+        array.setFaultStrategy(strategy) # override the preliminary default `__strategy` with the database state, if available
         array.setFilespaces(filespaceArr)
 
         return array
@@ -1757,6 +1759,13 @@ class GpArray:
         for seg in self.segments:
             hosts.extend(seg.get_hosts())
         return hosts
+
+    # --------------------------------------------------------------------
+    def get_master_host_names(self):
+        if self.hasStandbyMaster():
+            return [self.master.hostname, self.standbyMaster.hostname]
+        else:
+            return [self.master.hostname]
 
     # --------------------------------------------------------------------
     def get_max_dbid(self,includeExpansionSegs=False):

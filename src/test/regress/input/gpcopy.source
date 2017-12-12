@@ -1,5 +1,5 @@
 --
--- This test suite tests COPY code that is unique to greenplum db. 
+-- This test suite tests COPY code that is unique to greenplum db.
 --
 
 -- ######################################################
@@ -1048,22 +1048,17 @@ DROP TABLE IF EXISTS COPY_TO_PROGRAM_ERROR;
 DROP TABLE IF EXISTS COPY_FROM_PROGRAM_ERROR;
 -- end_ignore
 CREATE TABLE COPY_TO_PROGRAM_ERROR(dir text);
-COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'ttt';
-\COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'ttt';
-COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'ttt <SEGID>' ON SEGMENT;
 
-COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'echo && echo "error" >&2 && exit -1';
-COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'echo <SEGID>&& echo "error" >&2 && exit -1' on segment;
+COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'echo && echo "error" >&2 && exit 255';
+COPY COPY_TO_PROGRAM_ERROR TO PROGRAM 'echo <SEGID>&& echo "error" >&2 && exit 255' on segment;
 
 CREATE TABLE COPY_FROM_PROGRAM_ERROR(a int);
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'ttt';
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'ttt <SEGID>' ON SEGMENT;
 
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'echo 1; echo "error" >&2 && exit -1';
+COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'echo 1; echo "error" >&2 && exit 255';
 SELECT COUNT(*) FROM COPY_FROM_PROGRAM_ERROR;
 INSERT INTO COPY_FROM_PROGRAM_ERROR VALUES(0);
 COPY COPY_FROM_PROGRAM_ERROR TO '/tmp/program_error_<SEGID>.csv' ON SEGMENT;
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'cat /tmp/program_error_<SEGID>.csv && echo "error" >&2 && exit -1' ON SEGMENT;
+COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'cat /tmp/program_error_<SEGID>.csv && echo "error" >&2 && exit 255' ON SEGMENT;
 SELECT COUNT(*) FROM COPY_FROM_PROGRAM_ERROR;
 
 -- Test for COPY PROGRAM ENVIROMENT VAR
@@ -1074,6 +1069,18 @@ SELECT COUNT(*) FROM COPY_FROM_PROGRAM_ERROR;
 COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'echo $GP_SEGMENT_I';
 SELECT COUNT(*) FROM COPY_FROM_PROGRAM_ERROR;
 SET gp_enable_segment_copy_checking=off;
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'echo -e "$GP_SEGMENT_ID\n<SEGID>"' on segment;
-COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'echo -e "$GP_SEGMENT_I\n<SEGID>"' on segment;
+COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'printf "$GP_SEGMENT_ID\n<SEGID>"' on segment;
+COPY COPY_FROM_PROGRAM_ERROR FROM PROGRAM 'printf "$GP_SEGMENT_I\n<SEGID>"' on segment;
 SET gp_enable_segment_copy_checking=on;
+
+-- Test that xlog records are generated for COPY in the same transaction as
+-- created table. The actual validation for this test will be performed once the
+-- gp_replica_check tool is enabled.
+BEGIN;
+CREATE TABLE copy_from_same_txn(a int, b int);
+COPY copy_from_same_txn FROM stdin;
+1	1
+2	2
+3	3
+\.
+COMMIT;

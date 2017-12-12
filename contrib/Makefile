@@ -1,4 +1,4 @@
-# $PostgreSQL: pgsql/contrib/Makefile,v 1.82.2.1 2008/05/08 16:49:47 tgl Exp $
+# $PostgreSQL: pgsql/contrib/Makefile,v 1.84 2008/07/29 18:31:20 tgl Exp $
 
 subdir = contrib
 top_builddir = ..
@@ -11,6 +11,7 @@ WANTED_DIRS = \
 		formatter \
 		formatter_fixedwidth \
 		extprotocol \
+		citext \
 		gp_distribution_policy \
 		gp_internal_tools \
 		gp_inject_fault \
@@ -18,9 +19,11 @@ WANTED_DIRS = \
 		indexscan \
 		dict_int \
 		dict_xsyn \
+		citext		\
 		hstore		\
 		intarray \
 		pageinspect \
+		passwordcheck \
 		pg_upgrade \
 		pg_upgrade_support \
 		test_parser \

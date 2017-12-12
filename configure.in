@@ -34,10 +34,14 @@ AC_CONFIG_AUX_DIR(config)
 AC_PREFIX_DEFAULT(/usr/local/gpdb)
 AC_SUBST(configure_args, [$ac_configure_args])
 
-AC_DEFINE_UNQUOTED(PG_VERSION, "$PG_PACKAGE_VERSION", [Postgres version Greenplum Database is based on])
 [PG_MAJORVERSION=`expr "$PG_PACKAGE_VERSION" : '\([0-9][0-9]*\.[0-9][0-9]*\)'`]
 AC_SUBST(PG_MAJORVERSION)
 AC_DEFINE_UNQUOTED(PG_MAJORVERSION, "$PG_MAJORVERSION", [PostgreSQL major version as a string])
+
+[PG_VERSION="$PG_PACKAGE_VERSION"]
+dnl Greenplum co-opts the --with-extra-version value to append to Only the Greenplum version
+PGAC_ARG_REQ(with, extra-version, [STRING], [append STRING to version], [], [])
+AC_DEFINE_UNQUOTED(PG_VERSION, "$PG_PACKAGE_VERSION", [Postgres version Greenplum Database is based on])
 
 AC_CANONICAL_HOST
 
@@ -539,7 +543,7 @@ fi
 # enable profiling if --enable-profiling
 if test "$enable_profiling" = yes && test "$ac_cv_prog_cc_g" = yes; then
   if test "$GCC" = yes; then
-    AC_DEFINE([PROFILE_PID_DIR], 1, 
+    AC_DEFINE([PROFILE_PID_DIR], 1,
            [Define to 1 to allow profiling output to be saved separately for each process.])
     CFLAGS="$CFLAGS -pg $PLATFORM_PROFILE_FLAGS"
   else
@@ -596,10 +600,16 @@ AC_SUBST(GCC)
 AC_SUBST(BLD_ARCH)
 
 # Get the Greenplum version string from VERSION
-bash getversion > VERSION
+
+GP_VERSION_LONG=`bash ./getversion`
+
+GP_VERSION_LONG="$GP_VERSION_LONG$with_extra_version"
+
+echo $GP_VERSION_LONG > VERSION
 GP_VERSION=`cat VERSION`
 
 GP_VERSION_SHORT=`bash ./getversion --short`
+GP_VERSION_SHORT="$GP_VERSION_SHORT$with_extra_version"
 AC_SUBST(GP_VERSION_SHORT)
 
 GP_VERSION_IN="src/include/catalog/gp_version.in"
@@ -613,16 +623,6 @@ GP_BASH_VERSION_SH="gpMgmt/bin/lib/gp_bash_version.sh"
 if grep '##' $GP_BASH_VERSION_IN > /dev/null 2>&1 ; then
     sed "s,##.*##,$GP_VERSION," $GP_BASH_VERSION_IN > $GP_BASH_VERSION_SH
 fi
-
-# Create compiler version string
-if test x"$GCC" = x"yes" ; then
-  cc_string="GCC `${CC} --version | sed q`"
-else
-  cc_string=$CC
-fi
-AC_DEFINE_UNQUOTED(PG_VERSION_STR,
-                   ["PostgreSQL $PG_PACKAGE_VERSION (Greenplum Database $GP_VERSION) on $host, compiled by $cc_string"],
-                   [A string containing the version number, platform, and C compiler])
 
 AC_DEFINE_UNQUOTED(GP_VERSION,
                    ["$GP_VERSION"],
@@ -1151,13 +1151,6 @@ fi
 
 AC_SUBST(ADDON_DIR)
 
-# Supply a numeric version string for use by 3rd party add-ons
-# awk -F is a regex on some platforms, and not on others, so make "." a tab
-[PG_VERSION_NUM="`echo "$PG_PACKAGE_VERSION" | sed 's/[A-Za-z].*$//' |
-tr '.' '	' |
-$AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"]
-AC_DEFINE_UNQUOTED(PG_VERSION_NUM, $PG_VERSION_NUM, [PostgreSQL version as a number])
-
 #
 [GP_VERSION_NUM="`echo "$PACKAGE_VERSION" | sed 's/[A-Za-z].*$//' |
 tr '.' '	' |
@@ -1593,7 +1586,7 @@ if test "$with_krb5" = yes; then
   AC_MSG_CHECKING(for krb5_free_unparsed_name)
   AC_TRY_LINK([#include <krb5.h>],
               [krb5_free_unparsed_name(NULL,NULL);],
-              [AC_DEFINE(HAVE_KRB5_FREE_UNPARSED_NAME, 1, [Define to 1 if you have krb5_free_unparsed_name]) 
+              [AC_DEFINE(HAVE_KRB5_FREE_UNPARSED_NAME, 1, [Define to 1 if you have krb5_free_unparsed_name])
 AC_MSG_RESULT(yes)],
               [AC_MSG_RESULT(no)])
 fi
@@ -2318,6 +2311,24 @@ AC_MSG_NOTICE([using CFLAGS=$CFLAGS])
 AC_MSG_NOTICE([using CPPFLAGS=$CPPFLAGS])
 AC_MSG_NOTICE([using LDFLAGS=$LDFLAGS])
 AC_MSG_NOTICE([using LIBS=$LIBS])
+
+# Create compiler version string
+if test x"$GCC" = x"yes" ; then
+  cc_string="GCC `${CC} --version | sed q`"
+else
+  cc_string=$CC
+fi
+
+AC_DEFINE_UNQUOTED(PG_VERSION_STR,
+                   ["PostgreSQL $PG_VERSION (Greenplum Database $GP_VERSION) on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"],
+                   [A string containing the version number, platform, and C compiler])
+
+# Supply a numeric version string for use by 3rd party add-ons
+# awk -F is a regex on some platforms, and not on others, so make "." a tab
+[PG_VERSION_NUM="`echo "$PG_PACKAGE_VERSION" | sed 's/[A-Za-z].*$//' |
+tr '.' '	' |
+$AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"]
+AC_DEFINE_UNQUOTED(PG_VERSION_NUM, $PG_VERSION_NUM, [PostgreSQL version as a number])
 
 
 # prepare build tree if outside source tree

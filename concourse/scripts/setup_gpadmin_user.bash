@@ -29,6 +29,7 @@ ssh_keyscan_for_user() {
     ssh-keyscan localhost
     ssh-keyscan 0.0.0.0
     ssh-keyscan github.com
+    ssh-keyscan `hostname`
   } >> "${home_dir}/.ssh/known_hosts"
 }
 
@@ -62,6 +63,9 @@ setup_gpadmin_user() {
     centos)
       /usr/sbin/useradd -G supergroup,tty gpadmin
       ;;
+    ubuntu)
+      /usr/sbin/useradd -G supergroup,tty gpadmin -s /bin/bash
+      ;;
     *) echo "Unknown OS: $TEST_OS"; exit 1 ;;
   esac
   echo -e "password\npassword" | passwd gpadmin
@@ -71,7 +75,9 @@ setup_gpadmin_user() {
 }
 
 setup_sshd() {
-  test -e /etc/ssh/ssh_host_key || ssh-keygen -f /etc/ssh/ssh_host_key -N '' -t rsa1
+  if [ ! "$TEST_OS" = 'ubuntu' ]; then
+    test -e /etc/ssh/ssh_host_key || ssh-keygen -f /etc/ssh/ssh_host_key -N '' -t rsa1
+  fi
   test -e /etc/ssh/ssh_host_rsa_key || ssh-keygen -f /etc/ssh/ssh_host_rsa_key -N '' -t rsa
   test -e /etc/ssh/ssh_host_dsa_key || ssh-keygen -f /etc/ssh/ssh_host_dsa_key -N '' -t dsa
 
@@ -85,6 +91,11 @@ setup_sshd() {
   sed -ri 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
 
   setup_ssh_for_user root
+
+  if [ "$TEST_OS" = 'ubuntu' ]; then
+    mkdir -p /var/run/sshd
+    chmod 0755 /var/run/sshd
+  fi
 
   /usr/sbin/sshd
 
@@ -101,14 +112,23 @@ determine_os() {
     echo "sles"
     return
   fi
+  if lsb_release -a | grep -q 'Ubuntu' ; then
+    echo "ubuntu"
+    return
+  fi
   echo "Could not determine operating system type" >/dev/stderr
   exit 1
+}
+
+workaround_before_concourse_stops_stripping_suid_bits() {
+  chmod u+s /bin/ping
 }
 
 _main() {
   TEST_OS=$(determine_os)
   setup_gpadmin_user
   setup_sshd
+  workaround_before_concourse_stops_stripping_suid_bits
 }
 
 _main "$@"

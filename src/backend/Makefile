@@ -21,8 +21,8 @@ include $(BLD_TOP)/$(ADDON_DIR)/src/Makefile
 endif
 
 SUBDIRS = access bootstrap catalog parser commands executor \
-	fts lib libpq gp_libpq_fe main nodes optimizer port postmaster regex \
-	replication rewrite storage tcop tsearch utils $(top_builddir)/src/timezone cdb\
+	fts lib libpq main nodes optimizer port postmaster regex \
+	replication rewrite storage tcop tsearch utils $(top_builddir)/src/timezone cdb \
 	$(ADDON_SUBDIR)
 
 ifeq ($(enable_orca),yes)

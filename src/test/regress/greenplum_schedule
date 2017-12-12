@@ -73,6 +73,7 @@ ignore: icudp_full
 
 test: resource_queue
 test: resource_queue_function
+test: resource_group
 test: wrkloadadmin
 
 # gp_toolkit performs a vacuum and checks that it truncated the relation. That
@@ -98,7 +99,8 @@ test: direct_dispatch bfv_dd bfv_dd_multicolumn bfv_dd_types
 # (https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=e5550d5fec66aa74caad1f79b79826ec64898688)
 test: catalog
 
-test: bfv_catalog bfv_index bfv_olap bfv_aggregate bfv_partition DML_over_joins gporca bfv_statistic
+test: gporca
+test: bfv_catalog bfv_index bfv_olap bfv_aggregate bfv_partition DML_over_joins bfv_statistic
  
 test: aggregate_with_groupingsets 
 
@@ -110,9 +112,9 @@ test: tuple_serialization
 # NOTE: The bfv_temp test assumes that there are no temporary tables in
 # other sessions. Therefore the other tests in this group mustn't create
 # temp tables
-test: bfv_cte bfv_joins bfv_subquery bfv_planner bfv_legacy bfv_temp
+test: bfv_cte bfv_joins bfv_subquery bfv_planner bfv_legacy bfv_temp bfv_dml
 
-test: qp_olap_mdqa qp_misc
+test: qp_olap_mdqa qp_misc qp_dml_joins qp_dml_oids
 
 test: qp_misc_jiras qp_with_clause qp_executor qp_olap_windowerr qp_olap_window qp_derived_table qp_bitmapscan session_level_memory_consumption
 test: qp_with_functional_inlining qp_with_functional_noinlining

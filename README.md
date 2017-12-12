@@ -1,6 +1,6 @@
 ## Travis [![Travis Build Status](https://travis-ci.org/greenplum-db/gpdb.svg?branch=master)](https://travis-ci.org/greenplum-db/gpdb)
 
-## Concourse [![Concourse Build Status](https://gpdb.ci.pivotalci.info/api/v1/teams/gpdb/pipelines/gpdb_master/jobs/gpdb_rc_packaging_centos/badge)](https://gpdb.ci.pivotalci.info/teams/gpdb)
+## Concourse [![Concourse Build Status](https://gpdb.data.pivotal.ci/api/v1/teams/gpdb/pipelines/gpdb_master/jobs/gpdb_rc_packaging_centos/badge)](https://gpdb.data.pivotal.ci/teams/gpdb)
 
 ----------------------------------------------------------------------
 
@@ -56,6 +56,16 @@ ssh <hostname of your machine>  # e.g., ssh briarwood
 
 <a name="buildOrca"></a>
 ### Build the optimizer
+#### Automatically with Conan dependency manager
+
+```bash
+cd depends
+./configure
+make
+make install_local
+cd ..
+```
+
 #### Manually
 Currently GPDB assumes ORCA libraries and headers are available in the targeted
 system and tries to build with ORCA by default.  For your convenience, here are
@@ -104,9 +114,10 @@ building, see the README at the following repositories:
        In case, the files should be copied elsewhere, please change the location.
     
 ### Build the database
+
 ```
 # Configure build environment to install at /usr/local/gpdb
-./configure --with-perl --with-python --with-libxml --prefix=/usr/local/gpdb
+./configure --with-perl --with-python --with-libxml --with-gssapi --prefix=/usr/local/gpdb
 
 # Compile and install
 make
@@ -347,13 +358,6 @@ throughout the codebase, but a few larger additions worth noting:
   code, and contains glue code for translating plans and queries
   between the DXL format used by ORCA, and the PostgreSQL internal
   representation.
-
-* __src/backend/gp_libpq_fe/__
-
-  A slightly modified copy of libpq. The master node uses this to
-  connect to segments, and to send fragments of a query plan to
-  segments for execution. It is linked directly into the backend, it
-  is not a shared library like libpq.
 
 * __src/backend/fts/__
 

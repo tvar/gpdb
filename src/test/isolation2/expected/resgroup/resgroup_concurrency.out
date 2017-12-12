@@ -167,7 +167,7 @@ ALTER
 SELECT concurrency,proposed_concurrency FROM gp_toolkit.gp_resgroup_config WHERE groupname='rg_concurrency_test';
 concurrency|proposed_concurrency
 -----------+--------------------
-3          |2                   
+2          |2                   
 (1 row)
 -- When one transaction is finished, queueing transaction won't be woken up. There're 2 running transactions and 1 queueing transaction.
 24:END;
@@ -246,7 +246,7 @@ BEGIN
 DROP ROLE role_concurrency_test;
 DROP
 DROP RESOURCE GROUP rg_concurrency_test;
-ERROR:  Cannot drop resource group "rg_concurrency_test"
+ERROR:  cannot drop resource group "rg_concurrency_test"
 HINT:   The resource group is currently managing 1 query(ies) and cannot be dropped.
 	Terminate the queries first or try dropping the group later.
 	The view pg_stat_activity tracks the queries managed by resource groups.
@@ -258,10 +258,7 @@ DROP
 DROP RESOURCE GROUP rg_concurrency_test;
 DROP
 
--- test5: concurrently alter resource group cpu rate limit
--- NONE
-
--- test6: cancel a query that is waiting for a slot
+-- test5: QD exit before QE
 DROP ROLE IF EXISTS role_concurrency_test;
 DROP
 -- start_ignore
@@ -301,6 +298,35 @@ DROP ROLE role_concurrency_test;
 DROP
 DROP RESOURCE GROUP rg_concurrency_test;
 DROP
+
+-- test6: cancel a query that is waiting for a slot
+DROP ROLE IF EXISTS role_concurrency_test;
+DROP
+-- start_ignore
+DROP RESOURCE GROUP rg_concurrency_test;
+ERROR:  resource group "rg_concurrency_test" does not exist
+-- end_ignore
+
+CREATE RESOURCE GROUP rg_concurrency_test WITH (concurrency=1, cpu_rate_limit=20, memory_limit=20);
+CREATE
+CREATE ROLE role_concurrency_test RESOURCE GROUP rg_concurrency_test;
+CREATE
+51:SET ROLE role_concurrency_test;
+SET
+51:BEGIN;
+BEGIN
+52:SET ROLE role_concurrency_test;
+SET
+52&:BEGIN;  <waiting ...>
+51q: ... <quitting>
+52<:  <... completed>
+BEGIN
+52q: ... <quitting>
+DROP ROLE role_concurrency_test;
+DROP
+DROP RESOURCE GROUP rg_concurrency_test;
+DROP
+
 
 -- test7: terminate a query that is waiting for a slot
 DROP ROLE IF EXISTS role_concurrency_test;
