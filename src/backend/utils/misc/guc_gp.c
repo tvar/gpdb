@@ -4647,7 +4647,7 @@ struct config_int ConfigureNamesInt_gp[] =
 			NULL
 		},
 		&optimizer_join_order_threshold,
-		10, 0, INT_MAX, NULL, NULL
+		10, 0, 12, NULL, NULL
 	},
 
 	{
@@ -5473,7 +5473,7 @@ struct config_string ConfigureNamesString_gp[] =
 			GUC_GPDB_ADDOPT
 		},
 		&gp_hadoop_target_version,
-		"gphd-1.1", NULL, NULL
+		"hadoop", NULL, NULL
 	},
 
 	{
