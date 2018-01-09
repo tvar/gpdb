@@ -1109,13 +1109,13 @@ parse_validate_reloptions(StdRdOptions *result, Datum reloptions,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("compresstype can\'t be used with compresslevel 0")));
-		if (result->compresslevel < 0 || result->compresslevel > 9)
+		if (result->compresslevel < 0 || result->compresslevel > 19)
 		{
 			if (validate)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("compresslevel=%d is out of range (should be "
-								"between 0 and 9)",
+								"between 0 and 19)",
 								result->compresslevel)));
 
 			result->compresslevel = setDefaultCompressionLevel(
@@ -1154,6 +1154,21 @@ parse_validate_reloptions(StdRdOptions *result, Datum reloptions,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("compresslevel=%d is out of range for rle_type"
 								" (should be in the range 1 to 4)",
+								result->compresslevel)));
+
+			result->compresslevel = setDefaultCompressionLevel(
+					result->compresstype);
+		}
+		
+		if (result->compresstype &&
+			(pg_strcasecmp(result->compresstype, "zlib") == 0) &&
+			(result->compresslevel > 9))
+		{
+			if (validate)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("compresslevel=%d is out of range for zlib"
+								" (should be in the range 1 to 9)",
 								result->compresslevel)));
 
 			result->compresslevel = setDefaultCompressionLevel(
