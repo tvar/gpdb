@@ -53,3 +53,14 @@ GTAGS
 /config.log
 /config.status
 /VERSION
+/gp-xerces/
+
+build/
+/contrib/citext/citext.sql
+/depends/.conan/
+/depends/Makefile
+/depends/build/
+/depends/conan_imports_manifest.txt
+/depends/conaninfo.txt
+/depends/config.status
+/src/backend/tcop/.#postgres.c
