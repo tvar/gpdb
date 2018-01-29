@@ -424,13 +424,13 @@ init_datumstream_info(
 			case 3:
 				ao_attr->compress = true;
 				ao_attr->compressType = "zlib";
-				ao_attr->compressLevel = 5;
+				ao_attr->compressLevel = 4;
 				break;
 
 			case 4:
 				ao_attr->compress = true;
-				ao_attr->compressType = "zlib";
-				ao_attr->compressLevel = 9;
+				ao_attr->compressType = "zstd";
+				ao_attr->compressLevel = 4;
 				break;
 
 			default:
