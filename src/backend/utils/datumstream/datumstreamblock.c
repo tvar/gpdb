@@ -4423,6 +4423,11 @@ DatumStreamBlockWrite_Finish(
 
 	if (strncmp(dsw->eyecatcher, DatumStreamBlockWrite_Eyecatcher, DatumStreamBlockWrite_EyecatcherLen) != 0)
 		elog(FATAL, "DatumStreamBlockWrite data structure not valid (eyecatcher)");
+		
+	DatumStreamVersion dswVer = dsw->datumStreamVersion;
+	if (dswVer < 0 || dswVer >= MaxDatumStreamVersion) {
+		elog(FATAL, "DatumStreamBlockWrite datumStreamVersion invalid %d", dswVer);
+	}
 
 	oldCtxt = MemoryContextSwitchTo(dsw->memctxt);
 	if (dsw->null_bitmap_buffer != NULL)

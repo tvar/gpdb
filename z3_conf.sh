@@ -1,5 +1,6 @@
 LD_LIBRARY_PATH=$(pwd)/depends/build/lib ./configure \
     --enable-debug \
+    --enable-cassert \
     --with-zstd \
     --with-libraries=$(pwd)/depends/build/lib \
     --with-includes=$(pwd)/depends/build/include \
