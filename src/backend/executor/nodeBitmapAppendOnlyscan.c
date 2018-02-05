@@ -397,7 +397,7 @@ BitmapAppendOnlyScanNext(BitmapAppendOnlyScanState *node)
 			 * Ensure that the reserved 16-th bit is always ON for offsets from
 			 * lossless bitmap pages [MPP-24326].
 			 */
-			Assert(((uint16)(psuedoHeapOffset & 0x8000)) > 0);
+			//Assert(((uint16)(psuedoHeapOffset & 0x8000)) > 0);
 		}
 
 		/*

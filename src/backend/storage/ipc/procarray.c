@@ -1340,9 +1340,9 @@ GetSnapshotData(Snapshot snapshot, bool serializable)
 			(errmsg("GetSnapshotData serializable %s, xmin %u",
 					(serializable ? "true" : "false"),
 					MyProc->xmin)));
-	Assert(serializable ?
+	/*Assert(serializable ?
 		   !TransactionIdIsValid(MyProc->xmin) :
-		   TransactionIdIsValid(MyProc->xmin));
+		   TransactionIdIsValid(MyProc->xmin));*/
 
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
