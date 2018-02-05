@@ -26,6 +26,8 @@
 #include "cdb/cdbsetop.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbpullup.h"
+#include "cdb/cdbhash.h"
+#include "parser/parse_expr.h"
 
 static Flow *copyFlow(Flow *model_flow, bool withExprs, bool withSort);
 static List *makeHashExprsFromNonjunkTargets(List *targetList);
@@ -413,8 +415,9 @@ List *makeHashExprsFromNonjunkTargets(List *targetlist)
 	{
 		TargetEntry *tle = (TargetEntry *) lfirst(cell);
 
-		if (!tle->resjunk)
+		if (!tle->resjunk && isGreenplumDbHashable(exprType((Node *) tle->expr)))
 		{
+			
 			hashlist = lappend(hashlist, copyObject(tle->expr));
 		}
 	}
