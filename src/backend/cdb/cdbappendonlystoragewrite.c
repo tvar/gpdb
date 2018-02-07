@@ -1477,16 +1477,49 @@ AppendOnlyStorageWrite_CompressAppend(AppendOnlyStorageWrite *storageWrite,
 		/*
 		 * Make the header and compute the checksum if necessary.
 		 */
-		AppendOnlyStorageFormat_MakeSmallContentHeader
-			(header,
-			 storageWrite->storageAttributes.checksum,
-			 storageWrite->isFirstRowNumSet,
-			 storageWrite->formatVersion,
-			 storageWrite->firstRowNum,
-			 executorBlockKind,
-			 itemCount,
-			 sourceLen,
-			  /* compressedLen */ 0);
+		switch (storageWrite->getBufferAoHeaderKind)
+		{
+			case AoHeaderKind_SmallContent:
+
+				/*
+				 * Make the header and compute the checksum if necessary.
+				 */
+
+				AppendOnlyStorageFormat_MakeSmallContentHeader
+						(header,
+						 storageWrite->storageAttributes.checksum,
+						 storageWrite->isFirstRowNumSet,
+						 storageWrite->formatVersion,
+						 storageWrite->firstRowNum,
+						 executorBlockKind,
+						 itemCount,
+						 sourceLen,
+						 /* compressedLen */ 0);
+				break;
+
+			case AoHeaderKind_BulkDenseContent:
+
+				/*
+				 * Make the header and compute the checksum if necessary.
+				 */
+				AppendOnlyStorageFormat_MakeBulkDenseContentHeader
+						(header,
+						 storageWrite->storageAttributes.checksum,
+						 storageWrite->isFirstRowNumSet,
+						 storageWrite->formatVersion,
+						 storageWrite->firstRowNum,
+						 executorBlockKind,
+						 itemCount,
+						 sourceLen,
+						 /* compressedLen */ 0);
+				elog(LOG, "Uncompressed store Append-Only AoHeaderKind_BulkDenseContent");
+				break;
+			default:
+				elog(ERROR, "Unexpected Append-Only header kind %d",
+					 storageWrite->getBufferAoHeaderKind);
+				break;
+		}
+
 
 		if (Debug_appendonly_print_storage_headers)
 		{
