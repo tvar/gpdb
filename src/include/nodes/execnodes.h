@@ -203,14 +203,6 @@ typedef struct ReturnSetInfo
 	TupleDesc	setDesc;		/* actual descriptor for returned tuples */
 } ReturnSetInfo;
 
-typedef struct ExecVariableListCodegenInfo
-{
-	/* Pointer to store ExecVariableListCodegen from Codegen */
-	void* code_generator;
-	/* Function pointer that points to either regular or generated slot_deform_tuple */
-	ExecVariableListFn ExecVariableList_fn;
-} ExecVariableListCodegenInfo;
-
 /* ----------------
  *		ProjectionInfo node information
  *
@@ -254,10 +246,6 @@ typedef struct ProjectionInfo
 	int			pi_lastInnerVar;
 	int			pi_lastOuterVar;
 	int			pi_lastScanVar;
-
-#ifdef USE_CODEGEN
-    ExecVariableListCodegenInfo ExecVariableList_gen_info;
-#endif
 } ProjectionInfo;
 
 /* ----------------
@@ -562,7 +550,7 @@ typedef struct EState
 	Oid			es_lastoid;		/* last oid processed (by INSERT) */
 	List	   *es_rowMarks;	/* not good place, but there is no other */
 
-	bool		es_instrument;	/* true requests runtime instrumentation */
+	int			es_instrument;	/* OR of InstrumentOption flags */
 	bool		es_select_into; /* true if doing SELECT INTO */
 	bool		es_into_oids;	/* true to generate OIDs in SELECT INTO */
 
@@ -796,11 +784,6 @@ struct ExprState
 	NodeTag		type;
 	Expr	   *expr;			/* associated Expr node */
 	ExprStateEvalFunc evalfunc; /* routine to run to execute node */
-
-#ifdef USE_CODEGEN
-	void *ExecEvalExpr_code_generator;
-#endif
-
 };
 
 /* ----------------
@@ -1386,9 +1369,6 @@ typedef struct PlanState
 	ExprContext *ps_ExprContext;	/* node's expression-evaluation context */
 	ProjectionInfo *ps_ProjInfo;	/* info for doing tuple projection */
 
-	/* The manager manages all the code generators and generation process */
-	void *CodegenManager;
-
 	/*
 	 * EXPLAIN ANALYZE statistics collection
 	 */
@@ -1402,6 +1382,8 @@ typedef struct PlanState
 	 */
 	int		gpmon_plan_tick;
 	gpmon_packet_t gpmon_pkt;
+
+	bool		fHadSentNodeStart;
 } PlanState;
 
 typedef struct Gpmon_NameUnit_MaxVal
@@ -2357,15 +2339,6 @@ typedef struct SortState
  *	expressions and run the aggregate transition functions.
  * -------------------------
  */
-
-typedef struct AdvanceAggregatesCodegenInfo
-{
-	/* Pointer to store AdvanceAggregatesCodegen from Codegen */
-	void* code_generator;
-	/* Function pointer that points to either regular or generated advance_aggregates */
-	AdvanceAggregatesFn AdvanceAggregates_fn;
-} AdvanceAggregatesCodegenInfo;
-
 /* these structs are private in nodeAgg.c: */
 typedef struct AggStatePerAggData *AggStatePerAgg;
 typedef struct AggStatePerGroupData *AggStatePerGroup;
@@ -2424,9 +2397,6 @@ typedef struct AggState
 	/* set if the operator created workfiles */
 	bool		workfiles_created;
 
-#ifdef USE_CODEGEN
-	AdvanceAggregatesCodegenInfo AdvanceAggregates_gen_info;
-#endif
 } AggState;
 
 

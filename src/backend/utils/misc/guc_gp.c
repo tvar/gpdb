@@ -80,9 +80,6 @@ static const char *assign_optimizer_log_failure(const char *newval,
 static const char *assign_optimizer_minidump(const char *newval,
 						  bool doit, GucSource source);
 static bool assign_optimizer(bool newval, bool doit, GucSource source);
-static bool assign_codegen(bool newval, bool doit, GucSource source);
-static const char *assign_codegen_optimization_level(const char *newval,
-                                                     bool doit, GucSource source);
 static const char *assign_optimizer_cost_model(const char *newval,
 							bool doit, GucSource source);
 static const char *assign_gp_workfile_caching_loglevel(const char *newval,
@@ -577,23 +574,13 @@ bool		optimizer_enable_space_pruning;
 bool		optimizer_analyze_root_partition;
 bool		optimizer_analyze_midlevel_partition;
 
-/**
- * GUCs related to code generation.
- **/
-bool		init_codegen;
-bool		codegen;
-bool		codegen_validate_functions;
-bool		codegen_exec_variable_list;
-bool		codegen_slot_getattr;
-bool		codegen_exec_eval_expr;
-bool		codegen_advance_aggregate;
-int		codegen_varlen_tolerance;
-int		codegen_optimization_level;
-static char 	*codegen_optimization_level_str = NULL;
-
 /* System Information */
 static int	gp_server_version_num;
 static char *gp_server_version_string;
+
+/* Query Metrics */
+bool		gp_enable_query_metrics = false;
+int			gp_instrument_shmem_size = 5120;
 
 /* Security */
 bool		gp_reject_internal_tcp_conn = true;
@@ -1997,6 +1984,15 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
+		{"gp_enable_query_metrics", PGC_POSTMASTER, UNGROUPED,
+			gettext_noop("Enable all query metrics collection."),
+			NULL	
+		},
+		&gp_enable_query_metrics,
+		false, NULL, NULL
+	},
+
+	{
 		{"gp_mapreduce_define", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Prepare mapreduce object creation"),	/* turn off statement
 																 * logging */
@@ -3214,102 +3210,7 @@ struct config_bool ConfigureNamesBool_gp[] =
 		false, NULL, NULL
 	},
 
-	{
-		{"init_codegen", PGC_POSTMASTER, DEVELOPER_OPTIONS,
-			gettext_noop("Enable just-in-time code generation."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&init_codegen,
-#ifdef USE_CODEGEN
-		true,
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
 
-	{
-		{"codegen", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Perform just-in-time code generation."),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen,
-		false,
-		assign_codegen, NULL
-	},
-
-	{
-		{"codegen_validate_functions", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Perform verify for generated functions to catch any error before compiling"),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&codegen_validate_functions,
-#if defined(USE_ASSERT_CHECKING) && defined(USE_CODEGEN)
-		true, 	/* true by default on debug builds. */
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
-	{
-		{"codegen_exec_variable_list", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Enable codegen for ExecVariableList"),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_exec_variable_list,
-#ifdef USE_CODEGEN
-		true,
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
-	{
-		{"codegen_slot_getattr", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Enable codegen for slot_get_attr"),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_slot_getattr,
-#ifdef USE_CODEGEN
-		true,
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
-	{
-		{"codegen_exec_eval_expr", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Enable codegen for ExecEvalExpr"),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_exec_eval_expr,
-#ifdef USE_CODEGEN
-		true,
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
-	{
-		{"codegen_advance_aggregate", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Enable codegen for AdvanceAggregate"),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_advance_aggregate,
-#ifdef USE_CODEGEN
-		true,
-#else
-		false,
-#endif
-		assign_codegen, NULL
-	},
 	{
 		{"vmem_process_interrupt", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Checks for interrupts before reserving VMEM"),
@@ -4303,6 +4204,16 @@ struct config_int ConfigureNamesInt_gp[] =
 	},
 
 	{
+		{"gp_instrument_shmem_size", PGC_POSTMASTER, UNGROUPED,
+			gettext_noop("Sets the size of shmem allocated for instrumentation."),
+			NULL,
+			GUC_UNIT_KB
+		},
+		&gp_instrument_shmem_size,
+		5120, 0, 131072, NULL, NULL
+	},
+
+	{
 		{"gp_vmem_protect_limit", PGC_POSTMASTER, RESOURCES_MEM,
 			gettext_noop("Virtual memory limit (in MB) of Greenplum memory protection."),
 			NULL,
@@ -4738,21 +4649,6 @@ struct config_int ConfigureNamesInt_gp[] =
 		},
 		(int *) &gp_indexcheck_vacuum,
 		INDEX_CHECK_NONE, 0, INDEX_CHECK_ALL, NULL, NULL
-	},
-
-	{
-		{"codegen_varlen_tolerance", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Minimum number of initial fixed length attributes in the table to generate code for deforming tuples."),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_varlen_tolerance,
-#ifdef USE_CODEGEN
-		5,
-#else
-		0,
-#endif
-		0, INT_MAX, NULL, NULL
 	},
 
 	{
@@ -5544,21 +5440,6 @@ struct config_string ConfigureNamesString_gp[] =
 	},
 
 	{
-		{"codegen_optimization_level", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Sets optimizer level to use when compiling generated code."),
-			gettext_noop("Valid values are none, less, default, aggressive."),
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
-		},
-		&codegen_optimization_level_str,
-#ifdef USE_CODEGEN
-		"default",
-#else
-		"",
-#endif
-		assign_codegen_optimization_level, NULL
-	},
-
-	{
 		/* Can't be set in postgresql.conf */
 		{"gp_server_version", PGC_INTERNAL, PRESET_OPTIONS,
 			gettext_noop("Shows the Greenplum server version."),
@@ -5755,41 +5636,6 @@ assign_pljava_classpath_insecure(bool newval, bool doit, GucSource source)
 	}
 	return true;
 }
-
-static const char*
-assign_codegen_optimization_level(const char *val, bool assign, GucSource source) {
-#ifndef USE_CODEGEN
-	if (val && pg_strcasecmp(val, "") != 0)
-		ereport(ERROR,
-			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Code generation is not supported by this build")));
-#else
-
-	if (pg_strcasecmp(val, "none") == 0 && assign)
-	{
-		codegen_optimization_level = CODEGEN_OPTIMIZATION_LEVEL_NONE;
-	}
-	else if (pg_strcasecmp(val, "less") == 0 && assign)
-	{
-		codegen_optimization_level = CODEGEN_OPTIMIZATION_LEVEL_LESS;
-	}
-	else if (pg_strcasecmp(val, "default") == 0 && assign)
-	{
-		codegen_optimization_level = CODEGEN_OPTIMIZATION_LEVEL_DEFAULT;
-	}
-	else if (pg_strcasecmp(val, "aggressive") == 0 && assign)
-	{
-		codegen_optimization_level = CODEGEN_OPTIMIZATION_LEVEL_AGGRESSIVE;
-	}
-	else
-	{
-		return NULL;      /* fail */
-	}
-#endif
-
-	return val;
-}
-
 
 static const char *
 assign_optimizer_minidump(const char *val, bool assign, GucSource source)
@@ -6009,19 +5855,6 @@ assign_optimizer(bool newval, bool doit, GucSource source)
 			return false;
 		}
 	}
-
-	return true;
-}
-
-static bool
-assign_codegen(bool newval, bool doit, GucSource source)
-{
-#ifndef USE_CODEGEN
-	if (newval)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("Code generation is not supported by this build")));
-#endif
 
 	return true;
 }

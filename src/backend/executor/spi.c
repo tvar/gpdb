@@ -23,6 +23,7 @@
 #include "utils/typcache.h"
 #include "utils/resource_manager.h"
 #include "utils/resscheduler.h"
+#include "utils/metrics_utils.h"
 
 #include "cdb/cdbvars.h"
 #include "miscadmin.h"
@@ -1887,7 +1888,11 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 											ActiveSnapshot,
 											crosscheck_snapshot,
 											dest,
-											paramLI, false);
+											paramLI, INSTRUMENT_NONE);
+
+					/* GPDB hook for collecting query info */
+					if (query_info_collect_hook)
+						(*query_info_collect_hook)(METRICS_QUERY_SUBMIT, qdesc);
 
                     if (gp_enable_gpperfmon 
                     		&& Gp_role == GP_ROLE_DISPATCH 

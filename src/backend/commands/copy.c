@@ -53,6 +53,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/resscheduler.h"
+#include "utils/metrics_utils.h"
 
 #include "cdb/cdbvars.h"
 #include "cdb/cdbcopy.h"
@@ -1603,7 +1604,8 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 		/* Create a QueryDesc requesting no output */
 		cstate->queryDesc = CreateQueryDesc(plan, queryString,
 											ActiveSnapshot, InvalidSnapshot,
-											dest, NULL, false);
+											dest, NULL,
+											GP_INSTRUMENT_OPTS);
 
 		if (gp_enable_gpperfmon && Gp_role == GP_ROLE_DISPATCH)
 		{
@@ -1615,6 +1617,10 @@ DoCopyInternal(const CopyStmt *stmt, const char *queryString, CopyState cstate)
 					GetResqueueName(GetResQueueId()),
 					GetResqueuePriority(GetResQueueId()));
 		}
+
+		/* GPDB hook for collecting query info */
+		if (query_info_collect_hook)
+			(*query_info_collect_hook)(METRICS_QUERY_SUBMIT, cstate->queryDesc);
 
 		/*
 		 * Call ExecutorStart to prepare the plan for execution.
@@ -1974,8 +1980,9 @@ DoCopy(const CopyStmt *stmt, const char *queryString)
 	{
 		if (!(!cstate->on_segment && Gp_role == GP_ROLE_EXECUTE))
 		{
-			if (cstate->is_program)
+			if (cstate->is_program && cstate->program_pipes)
 			{
+				kill(cstate->program_pipes->pid, 9);
 				close_program_pipes(cstate, false);
 			}
 		}
@@ -8132,6 +8139,12 @@ close_program_pipes(CopyState cstate, bool ifThrow)
 	{
 		fclose(cstate->copy_file);
 		cstate->copy_file = NULL;
+	}
+
+	/* just return if pipes not created, like when relation does not exist */
+	if (!cstate->program_pipes)
+	{
+		return;
 	}
 
 	if (kill(cstate->program_pipes->pid, 0) == 0) /* process exists */

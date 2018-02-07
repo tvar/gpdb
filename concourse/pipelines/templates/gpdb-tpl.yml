@@ -24,8 +24,6 @@
                       'gpinitstandby'] %}
 {% set MM_gpexpand_suites = ['gpexpand_1',
                              'gpexpand_2'] %}
-{% set hadoop_platforms = ['HDP',
-                           'CDH'] %}
 {% set aa_Test_suites = ['Planner_centos6',
                          'Orca_centos6',
                          'Planner_centos7',
@@ -122,10 +120,7 @@ groups:
 {% if "UD" in test_sections %}
   ## --------------------------------------------------------------------
   - gate_ud_start
-{% for hadoop_platform in hadoop_platforms %}
-  - regression_tests_pxf_[[ hadoop_platform ]]_rpm
-  - regression_tests_pxf_[[ hadoop_platform ]]_tar
-{% endfor %}
+  - regression_tests_pxf
   - regression_tests_gphdfs_centos
   - gate_ud_end
 {% endif %}
@@ -280,10 +275,7 @@ groups:
 - name: G:UD
   jobs:
   - gate_ud_start
-{% for hadoop_platform in hadoop_platforms %}
-  - regression_tests_pxf_[[ hadoop_platform ]]_rpm
-  - regression_tests_pxf_[[ hadoop_platform ]]_tar
-{% endfor %}
+  - regression_tests_pxf
   - regression_tests_gphdfs_centos
   - gate_ud_end
 
@@ -415,21 +407,19 @@ resources:
     private_key: {{gpaddon-git-key}}
     uri: {{gpaddon-git-remote}}
 
-- name: pxf_src
-  type: git
-  source:
-    branch: {{pxf-git-branch}}
-    tag_filter: {{pxf-git-filter}}
-    private_key: {{pxf-git-key}}
-    uri: {{pxf-git-remote}}
-
 {% if "UD" in test_sections %}
-- name: pxf_automation_src
+- name: pxf_infra_src
   type: git
   source:
-    branch: {{pxf_automation-git-branch}}
-    private_key: {{pxf_automation-git-key}}
-    uri: {{pxf_automation-git-remote}}
+    branch: {{pxf_infra-git-branch}}
+    private_key: {{pxf_infra-git-key}}
+    uri: {{pxf_infra-git-remote}}
+
+- name: centos6-gpdb-dev-pxf-hdp
+  type: docker-image
+  source:
+    repository: pivotaldata/gpdb-dev
+    tag: centos6-pxf-hdp-server
 
 {% endif %}
 - name: debian_release
@@ -476,6 +466,28 @@ resources:
     secret_access_key: {{bucket-secret-access-key}}
     versioned_file: {{bin_gpdb_centos_versioned_file}}
 
+{% if pipeline_type == "prod" %}
+- name: bin_gpdb_centos6_icw_green
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: bin_gpdb_centos6/gpdb_branch_5X_STABLE/icw_green/bin_gpdb.tar.gz
+
+{% endif %}
+{% if "UD" in test_sections %}
+- name: pxf_tarball
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{pxf-aws-bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: pxf_artifacts/prod/gpdb_branch_5X_STABLE/stable/pxf.tar.gz
+
+{% endif %}
 - name: compiled_bits_ubuntu16
   type: s3
   source:
@@ -622,19 +634,6 @@ resources:
     secret_access_key: {{bucket-secret-access-key}}
     versioned_file: {{deb_package_ubuntu16_versioned_file}}
 
-{% if "UD" in test_sections %}
-{% for hadoop_platform in hadoop_platforms %}
-- name: singlecluster-[[ hadoop_platform ]]
-  type: s3
-  source:
-    access_key_id: {{bucket-access-key-id}}
-    secret_access_key: {{bucket-secret-access-key}}
-    bucket: {{pxf-aws-bucket-name}}
-    region_name: {{aws-region}}
-    versioned_file: singlecluster-without-pxf/singlecluster-[[ hadoop_platform ]].tar.gz
-
-{% endfor %}
-{% endif %}
 {% if "DPM" in test_sections %}
 - name: nightly-trigger
   type: time
@@ -668,7 +667,7 @@ resources:
     bucket: madlib-concourse
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    versioned_file: release/gpdb5/madlib-1.12-gp5-rhel6-x86_64.gppkg
+    regexp: release/gpdb5/madlib-(.*)-gp5-rhel6-x86_64.gppkg
 
 - name: gcc_4.4.2_snowflake
   type: s3
@@ -692,7 +691,7 @@ resources:
     bucket: madlib-concourse
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    versioned_file: release/gpdb5/postgis-2.1.5-gp5-rhel6-x86_64.gppkg
+    regexp: release/gpdb5/postgis-(.*)-gp5-rhel6-x86_64.gppkg
 
 - name: postgis_gppkg_centos7
   type: s3
@@ -701,7 +700,7 @@ resources:
     bucket: madlib-concourse
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    versioned_file: release/gpdb5/postgis-2.1.5-gp5-rhel7-x86_64.gppkg
+    regexp: release/gpdb5/postgis-(.*)-gp5-rhel7-x86_64.gppkg
 
 {% endif %}
 {% if "DPM" in test_sections %}
@@ -710,10 +709,20 @@ resources:
   type: s3
   source:
     access_key_id: {{gpdb4-bucket-access-key-id}}
-    bucket: {{netbackup_installer_bucket}}
+    bucket: {{dpm_bucket}}
     region_name: {{aws-region}}
     secret_access_key: {{gpdb4-bucket-secret-access-key}}
     versioned_file: netbackup-installation/NetBackup_7.7.3_CLIENTS_RHEL_2.6.18.tar.gz
+
+# Resource used for DDBoost test
+- name: ddboost_rpm
+  type: s3
+  source:
+    access_key_id: {{gpdb4-bucket-access-key-id}}
+    bucket: {{dpm_bucket}}
+    region_name: {{aws-region}}
+    secret_access_key: {{gpdb4-bucket-secret-access-key}}
+    versioned_file: compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
 
 {% endif %}
 - name: reduced-frequency-trigger
@@ -922,8 +931,6 @@ jobs:
       trigger: true
     - get: gpaddon_src
       trigger: true
-    - get: pxf_src
-      trigger: true
     - get: gpdb_src_binary_swap
       trigger: true
     - get: centos-gpdb-dev-6
@@ -941,9 +948,6 @@ jobs:
       passed: [gate_compile_start]
       trigger: ((gpdb_src-trigger-flag))
     - get: gpaddon_src
-      passed: [gate_compile_start]
-    - get: pxf_src
-      trigger: true
       passed: [gate_compile_start]
     - get: centos-gpdb-dev-6
       passed: [gate_compile_start]
@@ -980,9 +984,6 @@ jobs:
       trigger: ((gpdb_src-trigger-flag))
     - get: gpaddon_src
       passed: [gate_compile_start]
-    - get: pxf_src
-      trigger: true
-      passed: [gate_compile_start]
     - get: centos-gpdb-dev-7
       passed: [gate_compile_start]
   - task: compile_gpdb
@@ -1017,8 +1018,6 @@ jobs:
       passed: [gate_compile_start]
       trigger: ((gpdb_src-trigger-flag))
     - get: gpaddon_src
-      passed: [gate_compile_start]
-    - get: pxf_src
       passed: [gate_compile_start]
   - task: compile_gpdb
     file: gpdb_src/concourse/tasks/compile_gpdb_sles11.yml
@@ -1105,8 +1104,6 @@ jobs:
       passed: [gate_compile_start]
     - get: gpaddon_src
       passed: [gate_compile_start]
-    - get: pxf_src
-      passed: [gate_compile_start]
     - get: centos-gpdb-dev-6
       passed: [gate_compile_start]
   - task: compile_gpdb
@@ -1135,9 +1132,6 @@ jobs:
       passed: [gate_compile_start]
       tags: ["wix"]
     - get: gpaddon_src
-      tags: ["wix"]
-      passed: [gate_compile_start]
-    - get: pxf_src
       tags: ["wix"]
       passed: [gate_compile_start]
     - get: centos-mingw
@@ -1578,12 +1572,20 @@ jobs:
       - icw_planner_centos6
       - icw_gporca_centos6
       - icw_planner_ictcp_centos6
+      - icw_extensions_gpcloud
+      - QP_memory-accounting
+      - QP_optimizer-functional
     - get: bin_gpdb_centos7
       passed:
       - icw_gporca_centos7
     - get: bin_gpdb_sles11
       passed:
       - icw_gporca_sles11
+{% if pipeline_type == "prod" %}
+  - put: bin_gpdb_centos6_icw_green
+    params:
+      file: bin_gpdb_centos6/bin_gpdb.tar.gz
+{% endif %}
 
 {% endif %}
 {% if "CS" in test_sections %}
@@ -1597,6 +1599,8 @@ jobs:
 
 - name: gate_cs_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -1606,7 +1610,8 @@ jobs:
           repository: alpine
       run:
         path: 'sh'
-        args: ['-c', 'sleep `expr {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+        args: ['-c', 'sleep `expr 1 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -1847,6 +1852,8 @@ jobs:
 
 - name: gate_mpp_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -1857,6 +1864,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 2 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -2001,6 +2009,8 @@ jobs:
 
 - name: gate_mm_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -2011,6 +2021,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 3 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -2273,6 +2284,8 @@ jobs:
 
 - name: gate_dpm_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -2283,6 +2296,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 4 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -2350,6 +2364,8 @@ jobs:
       passed: [gate_dpm_start]
     - get: centos-gpdb-dev-6
       tags: ["ddboost"]
+    - get: ddboost_rpm
+      tags: ["ddboost"]
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
@@ -2374,6 +2390,7 @@ jobs:
        - name: ccp_src
        - name: gpdb_src
        - name: cluster_env_files
+       - name: ddboost_rpm
       image_resource:
         type: docker-image
         source:
@@ -2387,6 +2404,8 @@ jobs:
           set -ex
           ccp_src/aws/setup_ssh_to_cluster.sh
           scp cluster_env_files/terraform/name mdw:/tmp/terraform_name
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm mdw:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm sdw1:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
           export DD_SOURCE_HOST={{datadomain_source_host}}; export DD_DEST_HOST={{datadomain_dest_host}};
           source gpdb_src/concourse/scripts/backup_utils.sh; setup_ddboost
     on_failure:
@@ -2419,6 +2438,8 @@ jobs:
       passed: [gate_dpm_start]
     - get: centos-gpdb-dev-6
       tags: ["ddboost"]
+    - get: ddboost_rpm
+      tags: ["ddboost"]
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
@@ -2443,6 +2464,7 @@ jobs:
        - name: ccp_src
        - name: gpdb_src
        - name: cluster_env_files
+       - name: ddboost_rpm
       image_resource:
         type: docker-image
         source:
@@ -2456,6 +2478,8 @@ jobs:
           set -ex
           ccp_src/aws/setup_ssh_to_cluster.sh
           scp cluster_env_files/terraform/name mdw:/tmp/terraform_name
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm mdw:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm sdw1:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
           export DD_SOURCE_HOST={{datadomain_source_host}}; export DD_DEST_HOST={{datadomain_dest_host}};
           source gpdb_src/concourse/scripts/backup_utils.sh; setup_ddboost
     on_failure:
@@ -2488,6 +2512,8 @@ jobs:
       passed: [gate_dpm_start]
     - get: centos-gpdb-dev-6
       tags: ["ddboost"]
+    - get: ddboost_rpm
+      tags: ["ddboost"]
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
@@ -2512,6 +2538,7 @@ jobs:
        - name: ccp_src
        - name: gpdb_src
        - name: cluster_env_files
+       - name: ddboost_rpm
       image_resource:
         type: docker-image
         source:
@@ -2525,6 +2552,8 @@ jobs:
           set -ex
           ccp_src/aws/setup_ssh_to_cluster.sh
           scp cluster_env_files/terraform/name mdw:/tmp/terraform_name
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm mdw:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
+          scp ddboost_rpm/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm sdw1:/tmp/compat-libstdc-33-3.2.3-69.el6.x86_64.rpm
           export DD_SOURCE_HOST={{datadomain_source_host}}; export DD_DEST_HOST={{datadomain_dest_host}};
           source gpdb_src/concourse/scripts/backup_utils.sh; setup_ddboost
     on_failure:
@@ -3019,6 +3048,8 @@ jobs:
 
 - name: gate_ud_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -3029,6 +3060,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 5 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -3041,8 +3073,7 @@ jobs:
       passed:
       - gate_compile_end
 
-{% for hadoop_platform in hadoop_platforms %}
-- name: regression_tests_pxf_[[ hadoop_platform ]]_rpm
+- name: regression_tests_pxf
   plan:
   - aggregate:
     - get: gpdb_src
@@ -3051,48 +3082,19 @@ jobs:
       resource: bin_gpdb_centos6
       passed: [gate_ud_start]
       trigger: [[ test_trigger ]]
-    - get: singlecluster
-      resource: singlecluster-[[ hadoop_platform ]]
+    - get: pxf_tarball
       trigger: [[ test_trigger ]]
-    - get: pxf_automation_src
-      trigger: [[ test_trigger ]]
-    - get: centos-gpdb-dev-6
-  - task: regression_tests_pxf
-    file: gpdb_src/concourse/tasks/regression_tests_pxf.yml
-    image: centos-gpdb-dev-6
+    - get: pxf_infra_src
+    - get: centos6-gpdb-dev-pxf-hdp
+  - task: test_pxf
+    file: pxf_infra_src/concourse/test_pxf.yml
+    image: centos6-gpdb-dev-pxf-hdp
     params:
-      GROUP: {{pxf_automation_test_group}}
-      HADOOP_CLIENT: [[ hadoop_platform ]]
+      GROUP: smoke
+      HADOOP_CLIENT: HDP
       TARGET_OS: centos
       TARGET_OS_VERSION: 6
 
-{% endfor %}
-{% for hadoop_platform in hadoop_platforms %}
-- name: regression_tests_pxf_[[ hadoop_platform ]]_tar
-  plan:
-  - aggregate:
-    - get: gpdb_src
-      passed: [gate_ud_start]
-    - get: bin_gpdb
-      resource: bin_gpdb_centos6
-      passed: [gate_ud_start]
-      trigger: [[ test_trigger ]]
-    - get: singlecluster
-      resource: singlecluster-[[ hadoop_platform ]]
-      trigger: [[ test_trigger ]]
-    - get: pxf_automation_src
-      trigger: [[ test_trigger ]]
-    - get: centos-gpdb-dev-6
-  - task: regression_tests_pxf
-    file: gpdb_src/concourse/tasks/regression_tests_pxf.yml
-    image: centos-gpdb-dev-6
-    params:
-      GROUP: {{pxf_automation_test_group}}
-      HADOOP_CLIENT: TAR
-      TARGET_OS: centos
-      TARGET_OS_VERSION: 6
-
-{% endfor %}
 - name: regression_tests_gphdfs_centos
   plan:
   - aggregate:
@@ -3115,10 +3117,7 @@ jobs:
   - aggregate:
     - get: gpdb_src
       passed: &gate_ud_end
-{% for hadoop_platform in hadoop_platforms %}
-      - regression_tests_pxf_[[ hadoop_platform ]]_rpm
-      - regression_tests_pxf_[[ hadoop_platform ]]_tar
-{% endfor %}
+      - regression_tests_pxf
       - regression_tests_gphdfs_centos
       trigger: true
     - get: bin_gpdb_centos6
@@ -3136,6 +3135,8 @@ jobs:
 
 - name: gate_advanced_analytics_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -3146,6 +3147,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 6 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -3239,6 +3241,8 @@ jobs:
 
 - name: gate_filerep_start
   plan:
+{% if stagger_sections %}
+  # stagger starts on prod pipelines
   - task: sleep_before_starting
     config:
       platform: linux
@@ -3249,6 +3253,7 @@ jobs:
       run:
         path: 'sh'
         args: ['-c', 'sleep `expr 7 \* {{group_start_delay}} + 1 + $RANDOM % {{group_delay_jitter}}`']
+{% endif %}
   - aggregate:
     - get: gpdb_src
       passed:
@@ -3367,10 +3372,7 @@ jobs:
 {% endfor %}
     - QP_memory-accounting
     - regression_tests_gphdfs_centos
-{% for hadoop_platform in hadoop_platforms %}
-    - regression_tests_pxf_[[ hadoop_platform ]]_rpm
-    - regression_tests_pxf_[[ hadoop_platform ]]_tar
-{% endfor %}
+    - regression_tests_pxf
     - DPM_backup-restore_ddboost_part1
     - DPM_backup-restore_ddboost_part2
     - DPM_backup-restore_ddboost_part3

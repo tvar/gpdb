@@ -4173,8 +4173,7 @@
           </thead>
           <tbody>
             <row>
-              <entry colname="col1"
-                >cdh<p>hadoop</p><p>hdp</p><p>mpr</p></entry>
+              <entry colname="col1">cdh<p>hadoop</p><p>hdp</p><p>mpr</p></entry>
               <entry colname="col2">hadoop</entry>
               <entry colname="col3">local<p>session</p><p>reload</p></entry>
             </row>
@@ -6648,6 +6647,9 @@
     <body>
       <p>Controls which message levels are written to the server log. Each level includes all the
         levels that follow it. The later the level, the fewer messages are sent to the log.</p>
+      <p>If the Greenplum Database PL/Container extension is installed. This parameter also controls
+        the PL/Container log level. For information about the extension, see <xref
+          href="../extensions/pl_container.xml"/>.</p>
       <table id="log_min_messages_table">
         <tgroup cols="3">
           <colspec colnum="1" colname="col1" colwidth="1*"/>
@@ -6993,10 +6995,12 @@
         parameter, <xref href="#max_prepared_transactions" format="dita"/> must be increased as
         well. For more information about limiting concurrent connections, see "Configuring Client
         Authentication" in the <i>Greenplum Database Administrator Guide</i>.</p>
-      <p>Increasing this parameter may cause Greenplum Database to request more shared
-        memory.Increasing this parameter might cause Greenplum Database to request more shared
-        memory. See <xref href="#shared_buffers" format="dita"/> for information about Greenplum
-        server instance shared memory buffers.</p>
+      <p>Increasing this parameter might cause Greenplum Database to request more shared memory. See
+          <xref href="#shared_buffers" format="dita"/> for information about Greenplum server
+        instance shared memory buffers. If this value is increased, <xref href="#shared_buffers"
+          format="dita"/> and the kernel parameter <codeph>SHMMAX</codeph> might also need to be
+        increased. Also, parameters that depend on shared memory such as <xref href="#max_fsm_pages"
+        /> might need to be changed.</p>
       <table id="max_connections_table">
         <tgroup cols="3">
           <colspec colnum="1" colname="col1" colwidth="1*"/>
@@ -7054,7 +7058,10 @@
     <title>max_fsm_pages</title>
     <body>
       <p>Sets the maximum number of disk pages for which free space will be tracked in the shared
-        free-space map. Six bytes of shared memory are consumed for each page slot. </p>
+        free-space map. Six bytes of shared memory are consumed for each page slot. If this value is
+        increased, <xref href="#shared_buffers" format="dita"/> and the kernel parameter
+          <codeph>SHMMAX</codeph> might also need to be increased. Also, parameters that depend on
+        shared memory such as <xref href="#max_connections"/> might need to be changed.</p>
       <table id="max_fsm_pages_table">
         <tgroup cols="3">
           <colspec colnum="1" colname="col1" colwidth="1*"/>
@@ -7083,7 +7090,7 @@
     <body>
       <p>Sets the maximum number of relations for which free space will be tracked in the shared
         memory free-space map. Should be set to a value larger than the total number of:</p>
-      <p>tables + indexes + system tables.</p>
+      <codeblock>tables + indexes + system tables</codeblock>
       <p>It costs about 60 bytes of memory for each relation per segment instance. It is better to
         allow some room for overhead and set too high rather than too low.</p>
       <table id="max_fsm_relations_table">
@@ -8362,7 +8369,7 @@
             <row>
               <entry colname="col1">string</entry>
               <entry colname="col2"/>
-              <entry colname="col3">master<p>system</p><p>restart</p><p>superuser</p></entry>
+              <entry colname="col3">master<p>system</p><p>reload</p><p>superuser</p></entry>
             </row>
           </tbody>
         </tgroup>

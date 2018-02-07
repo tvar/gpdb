@@ -131,8 +131,7 @@
 #include "pg_trace.h"
 #include "tcop/tcopprot.h"
 #include "utils/debugbreak.h"
-
-#include "codegen/codegen_wrapper.h"
+#include "utils/metrics_utils.h"
 
 #ifdef CDB_TRACE_EXECUTOR
 #include "nodes/print.h"
@@ -160,12 +159,6 @@ static CdbVisitOpt planstate_walk_kids(PlanState *planstate,
 				 CdbVisitOpt (*walker) (PlanState *planstate, void *context),
 					void *context,
 					int flags);
-
-static void
-			EnrollQualList(PlanState *result);
-
-static void
-			EnrollProjInfoTargetList(PlanState *result, ProjectionInfo *ProjInfo);
 
 /*
  * setSubplanSliceId
@@ -228,14 +221,6 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 	int			origExecutingSliceId = estate->currentExecutingSliceId;
 
 	MemoryAccountIdType curMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;
-
-	StringInfo	codegenManagerName = makeStringInfo();
-
-	appendStringInfo(codegenManagerName, "%s-%d-%d", "execProcnode", node->plan_node_id, node->type);
-	void	   *CodegenManager = CodeGeneratorManagerCreate(codegenManagerName->data);
-
-	START_CODE_GENERATOR_MANAGER(CodegenManager);
-	{
 
 	int localMotionId = LocallyExecutingSliceIndex(estate);
 
@@ -372,34 +357,6 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			{
 			result = (PlanState *) ExecInitTableScan((TableScan *) node,
 													 estate, eflags);
-
-			/*
-			 * Enroll ExecVariableList in codegen_manager
-			 */
-			if (NULL != result)
-			{
-				ScanState *scanState = (ScanState *) result;
-				ProjectionInfo *projInfo = result->ps_ProjInfo;
-				if (NULL != scanState &&
-				    scanState->tableType == TableTypeHeap &&
-				    NULL != projInfo &&
-				    projInfo->pi_isVarList &&
-				    NULL != projInfo->pi_targetlist)
-				{
-					enroll_ExecVariableList_codegen(ExecVariableList,
-							&projInfo->ExecVariableList_gen_info.ExecVariableList_fn, projInfo, scanState->ss_ScanTupleSlot);
-				}
-			}
-
-			/*
-			 * Enroll targetlist & quals' expression evaluation functions
-			 * in codegen_manager
-			 */
-			EnrollQualList(result);
-			if (NULL !=result)
-			{
-			  EnrollProjInfoTargetList(result, result->ps_ProjInfo);
-			}
 			}
 			END_MEMORY_ACCOUNT();
 			break;
@@ -650,22 +607,6 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			{
 			result = (PlanState *) ExecInitAgg((Agg *) node,
 												 estate, eflags);
-			/*
-			 * Enroll targetlist & quals' expression evaluation functions
-			 * in codegen_manager
-			 */
-			EnrollQualList(result);
-			if (NULL != result)
-			{
-			  AggState* aggstate = (AggState*)result;
-			  for (int aggno = 0; aggno < aggstate->numaggs; aggno++)
-			  {
-			    AggStatePerAgg peraggstate = &aggstate->peragg[aggno];
-			    EnrollProjInfoTargetList(result, peraggstate->evalproj);
-			  }
-			  enroll_AdvanceAggregates_codegen(advance_aggregates,
-			        &aggstate->AdvanceAggregates_gen_info.AdvanceAggregates_fn,
-			        aggstate);			}
 			}
 			END_MEMORY_ACCOUNT();
 			break;
@@ -830,125 +771,14 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 
 	/* Set up instrumentation for this node if requested */
 	if (estate->es_instrument && result != NULL)
-		result->instrument = InstrAlloc(1);
+		result->instrument = GpInstrAlloc(node, estate->es_instrument);
 
 	if (result != NULL)
 	{
 		SAVE_EXECUTOR_MEMORY_ACCOUNT(result, curMemoryAccountId);
-		result->CodegenManager = CodegenManager;
-		/*
-		 * Generate code only if current node is not alien or
-		 * if it is from 'explain codegen` / `explain analyze codegen` query
-		 */
-		bool isExplainCodegenOnMaster = (Gp_segment == -1) &&
-				(eflags & EXEC_FLAG_EXPLAIN_CODEGEN) &&
-				(eflags & EXEC_FLAG_EXPLAIN_ONLY);
-
-		bool isExplainAnalyzeCodegenOnMaster = (Gp_segment == -1) &&
-				(eflags & EXEC_FLAG_EXPLAIN_CODEGEN) &&
-				!(eflags & EXEC_FLAG_EXPLAIN_ONLY);
-
-		if (!isAlienPlanNode ||
-				isExplainAnalyzeCodegenOnMaster ||
-				isExplainCodegenOnMaster)
-		{
-			(void) CodeGeneratorManagerGenerateCode(CodegenManager);
-			if (isExplainAnalyzeCodegenOnMaster ||
-					isExplainCodegenOnMaster)
-			{
-				CodeGeneratorManagerAccumulateExplainString(CodegenManager);
-			}
-			if (!isExplainCodegenOnMaster)
-			{
-				(void) CodeGeneratorManagerPrepareGeneratedFunctions(CodegenManager);
-			}
-		}
 	}
-	}
-	END_CODE_GENERATOR_MANAGER();
-
 	return result;
 }
-
-/* ----------------------------------------------------------------
- *	  EnrollQualList
- *
- *	  Enroll Qual List's expr state from PlanState for codegen.
- * ----------------------------------------------------------------
- */
-void
-EnrollQualList(PlanState *result)
-{
-#ifdef USE_CODEGEN
-	if (NULL == result ||
-		NULL == result->qual)
-	{
-		return;
-	}
-
-	ListCell   *l;
-
-	foreach(l, result->qual)
-	{
-		ExprState  *exprstate = (ExprState *) lfirst(l);
-
-		enroll_ExecEvalExpr_codegen(exprstate->evalfunc,
-									&exprstate->evalfunc,
-									exprstate,
-									result->ps_ExprContext,
-									result
-			);
-	}
-
-#endif
-}
-
-/* ----------------------------------------------------------------
- *	  EnrollProjInfoTargetList
- *
- *	  Enroll Targetlist from ProjectionInfo to Codegen
- * ----------------------------------------------------------------
- */
-void
-EnrollProjInfoTargetList(PlanState *result, ProjectionInfo *ProjInfo)
-{
-#ifdef USE_CODEGEN
-	if (NULL == ProjInfo ||
-		NULL == ProjInfo->pi_targetlist)
-	{
-		return;
-	}
-	if (ProjInfo->pi_isVarList)
-	{
-		/*
-		 * Skip generating expression evaluation for VAR elements in the
-		 * target list since ExecVariableList will take of that
-		 * TODO(shardikar) Re-evaluate this condition once we codegen
-		 * ExecTargetList
-		 */
-		return;
-	}
-
-	ListCell   *l;
-
-	foreach(l, ProjInfo->pi_targetlist)
-	{
-		GenericExprState *gstate = (GenericExprState *) lfirst(l);
-
-		if (NULL == gstate->arg ||
-			NULL == gstate->arg->evalfunc)
-		{
-			continue;
-		}
-		enroll_ExecEvalExpr_codegen(gstate->arg->evalfunc,
-									&gstate->arg->evalfunc,
-									gstate->arg,
-									ProjInfo->pi_exprContext,
-									result);
-	}
-#endif
-}
-
 
 /* ----------------------------------------------------------------
  *		ExecSliceDependencyNode
@@ -1004,8 +834,6 @@ ExecProcNode(PlanState *node)
 {
 	TupleTableSlot *result = NULL;
 
-	START_CODE_GENERATOR_MANAGER(node->CodegenManager);
-	{
 	START_MEMORY_ACCOUNT(node->plan->memoryAccountId);
 	{
 
@@ -1031,10 +859,18 @@ ExecProcNode(PlanState *node)
 		ExecReScan(node, NULL); /* let ReScan handle this */
 
 	if (node->instrument)
-		InstrStartNode(node->instrument);
+		INSTR_START_NODE(node->instrument);
 
 	if(!node->fHadSentGpmon)
 		CheckSendPlanStateGpmonPkt(node);
+
+	if(!node->fHadSentNodeStart)
+	{
+		/* GPDB hook for collecting query info */
+		if (query_info_collect_hook)
+			(*query_info_collect_hook)(METRICS_PLAN_NODE_EXECUTING, node);
+		node->fHadSentNodeStart = true;
+	}
 
 	switch (nodeTag(node))
 	{
@@ -1215,7 +1051,7 @@ ExecProcNode(PlanState *node)
 	}
 
 	if (node->instrument)
-		InstrStopNode(node->instrument, TupIsNull(result) ? 0.0 : 1.0);
+		INSTR_STOP_NODE(node->instrument, TupIsNull(result) ? 0 : 1);
 
 	if (node->plan)
 		PG_TRACE4(execprocnode__exit, Gp_segment, currentSliceId, nodeTag(node), node->plan->plan_node_id);
@@ -1250,8 +1086,6 @@ ExecProcNode(PlanState *node)
 
 	}
 	END_MEMORY_ACCOUNT();
-	}
-	END_CODE_GENERATOR_MANAGER();
 	return result;
 }
 
@@ -1821,16 +1655,9 @@ ExecEndNode(PlanState *node)
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			break;
 	}
-
-	if (codegen)
-	{
-		/*
-		 * if codegen guc is true, then assert if CodegenManager is NULL
-		 */
-		Assert(NULL != node->CodegenManager);
-		CodeGeneratorManagerDestroy(node->CodegenManager);
-		node->CodegenManager = NULL;
-	}
+	/* GPDB hook for collecting query info */
+	if (query_info_collect_hook)
+		(*query_info_collect_hook)(METRICS_PLAN_NODE_FINISHED, node);
 
 	estate->currentSliceIdInPlan = origSliceIdInPlan;
 	estate->currentExecutingSliceId = origExecutingSliceId;
