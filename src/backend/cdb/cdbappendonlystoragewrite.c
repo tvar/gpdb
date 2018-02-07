@@ -983,18 +983,18 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 {
 	uint8	   *header;
 
-	AOHeaderCheckError checkError;
+	AOHeaderCheckError checkError = AOHeaderCheckOk;
 	AoHeaderKind headerKind;
 	int32		actualHeaderLen;
 	int32		offset;
-	int32		uncompressedLen;
-	bool		isCompressed;
+	int32		uncompressedLen = 0;
+	bool		isCompressed = false;
 	int32		overallBlockLen;
-	int32		compressedLen;
-	int			executorBlockKind;
+	int32		compressedLen = 0;
+	int			executorBlockKind = 0;
 	bool		hasFirstRowNum;
 	int64		firstRowNum;
-	int			rowCount;
+	int			rowCount = 0;
 	pg_crc32	storedChecksum;
 	pg_crc32	computedChecksum;
 
@@ -1045,7 +1045,7 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 				(errmsg("Verify block during write found bad append-only storage header. Header check error %d, detail '%s'",
 						(int) checkError,
 						AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
-			   errdetail_appendonly_write_storage_block_header(storageWrite),
+				 errdetail_appendonly_write_storage_block_header(storageWrite),
 				 errcontext_appendonly_write_storage_block(storageWrite)));
 
 	switch (headerKind)
@@ -1055,126 +1055,20 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 			/*
 			 * Check the Block header information.
 			 */
-			checkError =
-				AppendOnlyStorageFormat_GetSmallContentHeaderInfo
-				(header,
-				 actualHeaderLen,
-				 storageWrite->storageAttributes.checksum,
-				 bufferLen,
-				 &overallBlockLen,
-				 &offset, //Offset to data.
-				 & uncompressedLen,
-				 &executorBlockKind,
-				 &hasFirstRowNum,
-				 storageWrite->formatVersion,
-				 &firstRowNum,
-				 &rowCount,
-				 &isCompressed,
-				 &compressedLen);
-			if (checkError != AOHeaderCheckOk)
-				ereport(ERROR,
-						(errmsg("Verify block during write found bad append-only storage block header. "
-								"Header check error %d, detail '%s'",
-								(int) checkError,
-						   AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			if (uncompressedLen != expectedUncompressedLen)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-							"DataLen %d does not equal expected length %d, ",
-								uncompressedLen,
-								expectedUncompressedLen),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-
-			if (compressedLen != expectedCompressedLen)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-						"CompressedLen %d does not equal expected length %d",
-								compressedLen,
-								expectedCompressedLen),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			/*
-			 * Now verify the executor portion of the block.
-			 */
-
-			if (executorBlockKind != expectedExecutorBlockKind)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-					"ExecutorBlockKind %d does not equal expected value %d.",
-								executorBlockKind,
-								expectedExecutorBlockKind),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			/* UNDONE: Check hasFirstRowNum */
-
-			if (rowCount != expectedRowCount)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-							  "RowCount %d does not equal expected value %d",
-								rowCount,
-								expectedRowCount),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			if (Debug_appendonly_print_verify_write_block)
-			{
-				AppendOnlyStorageWrite_LogBlockHeader(storageWrite,
-													  headerOffsetInFile,
-													  header);
-			}
-
-
-			if (isCompressed)
-			{
-				int			test;
-				PGFunction	decompressor;
-				PGFunction *cfns = storageWrite->compression_functions;
-
-				Assert(gp_appendonly_verify_write_block == true);
-				Assert(storageWrite->verifyWriteCompressionState != NULL);
-
-				if (cfns == NULL)
-					ereport(ERROR,
-							(errcode(ERRCODE_GP_INTERNAL_ERROR),
-							 errmsg("decompression information missing")));
-
-				decompressor = cfns[COMPRESSION_DECOMPRESS];
-
-				gp_decompress_new(&header[offset], //Compressed data in block.
-								  compressedLen,
-								  storageWrite->verifyWriteBuffer, //Temporary buffer to hold uncompressed data.
-								  uncompressedLen,
-								  decompressor,
-								  storageWrite->verifyWriteCompressionState,
-								  storageWrite->bufferCount);
-
-				/*
-				 * Compare.
-				 */
-				test = memcmp(expectedContent,
-							  storageWrite->verifyWriteBuffer,
-							  uncompressedLen);
-
-				if (test != 0)
-					ereport(ERROR,
-							(errmsg("Verify block during write found decompress did not produce the exact same bits passed to compress! "
-									"Memcmp result %d",
-									test),
-							 errdetail_appendonly_write_storage_block_header(storageWrite),
-					errcontext_appendonly_write_storage_block(storageWrite)));
-
-			}
-			else
-			{
-				/* UNDONE: Do comparison here */
-			}
+			checkError = AppendOnlyStorageFormat_GetSmallContentHeaderInfo(header,
+																		   actualHeaderLen,
+																		   storageWrite->storageAttributes.checksum,
+																		   bufferLen,
+																		   &overallBlockLen,
+																		   &offset, //Offset to data.
+																		   & uncompressedLen,
+																		   &executorBlockKind,
+																		   &hasFirstRowNum,
+																		   storageWrite->formatVersion,
+																		   &firstRowNum,
+																		   &rowCount,
+																		   &isCompressed,
+																		   &compressedLen);
 			break;
 
 		case AoHeaderKind_LargeContent:
@@ -1182,50 +1076,36 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 			/*
 			 * Check the LargeContent header information.
 			 */
-			checkError = AppendOnlyStorageFormat_GetLargeContentHeaderInfo
-				(header,
-				 actualHeaderLen,
-				 storageWrite->storageAttributes.checksum,
-				 &uncompressedLen,
-				 &executorBlockKind,
-				 &hasFirstRowNum,
-				 &firstRowNum,
-				 &rowCount);
-			if (checkError != AOHeaderCheckOk)
-				ereport(ERROR,
-						(errmsg("Bad append-only storage header of type LargeContent. Header check error %d, detail '%s'",
-								(int) checkError,
-						   AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			/*
-			 * UNDONE: Needs checks on uncompressedLen, executorBlockKind,
-			 * hasFirstRowNum, and rowCount...
-			 *
-			 * UNDONE: Aren't we done here?
-			 */
+			checkError = AppendOnlyStorageFormat_GetLargeContentHeaderInfo(header,
+																		   actualHeaderLen,
+																		   storageWrite->storageAttributes.checksum,
+																		   &uncompressedLen,
+																		   &executorBlockKind,
+																		   &hasFirstRowNum,
+																		   &firstRowNum,
+																		   &rowCount);
 			break;
 		case AoHeaderKind_NonBulkDenseContent:
-			checkError = AppendOnlyStorageFormat_GetNonBulkDenseContentHeaderInfo(header, actualHeaderLen,  storageWrite->storageAttributes.checksum,
-																				 bufferLen, &overallBlockLen, &offset, //Offset to data.
-																				 &uncompressedLen,
-																				 &executorBlockKind,
-																				 &hasFirstRowNum,
-																				 storageWrite->formatVersion,
-																				 &firstRowNum,
-																				 &rowCount);
-			if (checkError != AOHeaderCheckOk)
-				ereport(ERROR,
-						(errmsg("Bad append-only storage header of type LargeContent. Header check error %d, detail '%s'",
-								(int) checkError,
-								AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
-						 errdetail_appendonly_write_storage_block_header(storageWrite),
-						 errcontext_appendonly_write_storage_block(storageWrite)));
+			checkError = AppendOnlyStorageFormat_GetNonBulkDenseContentHeaderInfo(header,
+																				  actualHeaderLen,
+																				  storageWrite->storageAttributes.checksum,
+																				  bufferLen,
+																				  &overallBlockLen,
+																				  &offset, //Offset to data.
+																				  &uncompressedLen,
+																				  &executorBlockKind,
+																				  &hasFirstRowNum,
+																				  storageWrite->formatVersion,
+																				  &firstRowNum,
+																				  &rowCount);
 			break;
 		case AoHeaderKind_BulkDenseContent:
-			checkError = AppendOnlyStorageFormat_GetBulkDenseContentHeaderInfo(header, actualHeaderLen, storageWrite->storageAttributes.checksum,
-																			   bufferLen, &overallBlockLen, &offset, //Offset to data.
+			checkError = AppendOnlyStorageFormat_GetBulkDenseContentHeaderInfo(header,
+																			   actualHeaderLen,
+																			   storageWrite->storageAttributes.checksum,
+																			   bufferLen,
+																			   &overallBlockLen,
+																			   &offset, //Offset to data.
 																			   &uncompressedLen,
 																			   &executorBlockKind,
 																			   &hasFirstRowNum,
@@ -1234,50 +1114,116 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 																			   &rowCount,
 																			   &isCompressed,
 																			   &compressedLen);
-			if (checkError != AOHeaderCheckOk)
-			   ereport(ERROR,
-					   (errmsg("Bad append-only storage header of type LargeContent. Header check error %d, detail '%s'",
-							   (int) checkError,
-						  AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
-			   errdetail_appendonly_write_storage_block_header(storageWrite),
-				  errcontext_appendonly_write_storage_block(storageWrite)));
-
-			if (uncompressedLen != expectedUncompressedLen)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-							"DataLen %d does not equal expected length %d, ",
-								uncompressedLen,
-								expectedUncompressedLen),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-
-			if (compressedLen != expectedCompressedLen)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-						"CompressedLen %d does not equal expected length %d",
-								compressedLen,
-								expectedCompressedLen),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
-
-			/*
-			 * Now verify the executor portion of the block.
-			 */
-
-			if (executorBlockKind != expectedExecutorBlockKind)
-				ereport(ERROR,
-						(errmsg("Verify block during write found append-only storage block header. "
-					"ExecutorBlockKind %d does not equal expected value %d.",
-								executorBlockKind,
-								expectedExecutorBlockKind),
-				errdetail_appendonly_write_storage_block_header(storageWrite),
-				   errcontext_appendonly_write_storage_block(storageWrite)));
 			break;
 		default:
 			elog(ERROR, "Unexpected Append-Only header kind %d",
 				 headerKind);
 			break;
+	}
+	if (checkError != AOHeaderCheckOk)
+		ereport(ERROR,
+				(errmsg("Verify block during write found bad append-only storage block header. Block type: %d "
+						"Header check error %d, detail '%s'",
+						headerKind,
+						(int) checkError,
+				   AppendOnlyStorageFormat_GetHeaderCheckErrorStr()),
+		errdetail_appendonly_write_storage_block_header(storageWrite),
+		   errcontext_appendonly_write_storage_block(storageWrite)));
+
+	if (uncompressedLen != expectedUncompressedLen)
+		ereport(ERROR,
+				(errmsg("Verify block during write found append-only storage block header. "
+					"DataLen %d does not equal expected length %d, ",
+						uncompressedLen,
+						expectedUncompressedLen),
+		errdetail_appendonly_write_storage_block_header(storageWrite),
+		   errcontext_appendonly_write_storage_block(storageWrite)));
+
+
+	if (compressedLen != expectedCompressedLen)
+		ereport(ERROR,
+				(errmsg("Verify block during write found append-only storage block header. "
+				"CompressedLen %d does not equal expected length %d",
+						compressedLen,
+						expectedCompressedLen),
+		errdetail_appendonly_write_storage_block_header(storageWrite),
+		   errcontext_appendonly_write_storage_block(storageWrite)));
+
+	/*
+	 * Now verify the executor portion of the block.
+	 */
+
+	if (executorBlockKind != expectedExecutorBlockKind)
+		ereport(ERROR,
+				(errmsg("Verify block during write found append-only storage block header. "
+			"ExecutorBlockKind %d does not equal expected value %d.",
+						executorBlockKind,
+						expectedExecutorBlockKind),
+		errdetail_appendonly_write_storage_block_header(storageWrite),
+		   errcontext_appendonly_write_storage_block(storageWrite)));
+
+	/* UNDONE: Check hasFirstRowNum */
+
+	if (rowCount != expectedRowCount)
+		ereport(ERROR,
+				(errmsg("Verify block during write found append-only storage block header. "
+					  "RowCount %d does not equal expected value %d",
+						rowCount,
+						expectedRowCount),
+		errdetail_appendonly_write_storage_block_header(storageWrite),
+		   errcontext_appendonly_write_storage_block(storageWrite)));
+
+	if (Debug_appendonly_print_verify_write_block)
+	{
+		AppendOnlyStorageWrite_LogBlockHeader(storageWrite,
+											  headerOffsetInFile,
+											  header);
+	}
+
+
+	if (isCompressed)
+	{
+		int			test;
+		PGFunction	decompressor;
+		PGFunction *cfns = storageWrite->compression_functions;
+
+		Assert(gp_appendonly_verify_write_block == true);
+		Assert(storageWrite->verifyWriteCompressionState != NULL);
+
+		if (cfns == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_GP_INTERNAL_ERROR),
+					 errmsg("decompression information missing")));
+
+		decompressor = cfns[COMPRESSION_DECOMPRESS];
+
+		gp_decompress_new(&header[offset], //Compressed data in block.
+						  compressedLen,
+						  storageWrite->verifyWriteBuffer, //Temporary buffer to hold uncompressed data.
+						  uncompressedLen,
+						  decompressor,
+						  storageWrite->verifyWriteCompressionState,
+						  storageWrite->bufferCount);
+
+		/*
+		 * Compare.
+		 */
+		test = memcmp(expectedContent,
+					  storageWrite->verifyWriteBuffer,
+					  uncompressedLen);
+
+		if (test != 0)
+			ereport(ERROR,
+					(errmsg("Verify block during write found decompress did not produce the exact same bits passed to compress! "
+							"Memcmp result %d",
+							test),
+					 errdetail_appendonly_write_storage_block_header(storageWrite),
+			errcontext_appendonly_write_storage_block(storageWrite)));
+
+	}
+	else
+	{
+		/* UNDONE: Do comparison here */
 	}
 
 #ifdef NeedCallBack
@@ -1330,7 +1276,6 @@ AppendOnlyStorageWrite_CompressAppend(AppendOnlyStorageWrite *storageWrite,
 {
 	uint8	   *header;
 	uint8	   *dataBuffer;
-	int32		dataRoundedUpLen = 0;	/* Shutup compiler. */
 	int32		dataBufferWithOverrrunLen;
 	PGFunction *cfns = storageWrite->compression_functions;
 	PGFunction	compressor;
@@ -1362,12 +1307,11 @@ AppendOnlyStorageWrite_CompressAppend(AppendOnlyStorageWrite *storageWrite,
 	 * Compress into the BufferedAppend buffer after the large header (and
 	 * optional checksum, etc.
 	 */
-	(void) gp_trycompress_new(
-							  sourceData,
+	(void) gp_trycompress_new(sourceData,
 							  sourceLen,
 							  dataBuffer,
 							  dataBufferWithOverrrunLen,
-			sourceLen, //Limit compression to be no more than the input size.
+							  sourceLen, //Limit compression to be no more than the input size.
 							  compressedLen,
 							  storageWrite->storageAttributes.compressLevel,
 							  compressor,
@@ -1381,163 +1325,86 @@ AppendOnlyStorageWrite_CompressAppend(AppendOnlyStorageWrite *storageWrite,
 	 * it's not worth paying the CPU cost of decompression for a potentially
 	 * trivial saving.
 	 *
-	 * The best solution to this seems to be to make the threshold at which we
+	 * The best solution to this seems to be to make the threshold at which wesourceLen
 	 * compress data user configurable.
 	 */
-	if (*compressedLen < sourceLen)
-	{
-		/*
-		 * Compression successful.
-		 */
-		dataRoundedUpLen = AOStorage_RoundUp(*compressedLen, storageWrite->formatVersion);
-
-		AOStorage_ZeroPad(
-						  dataBuffer,
-						  *compressedLen,
-						  dataRoundedUpLen);
-
-		switch (storageWrite->getBufferAoHeaderKind)
-		{
-			case AoHeaderKind_SmallContent:
-
-				/*
-				 * Make the header and compute the checksum if necessary.
-				 */
-				AppendOnlyStorageFormat_MakeSmallContentHeader
-					(header,
-					 storageWrite->storageAttributes.checksum,
-					 storageWrite->isFirstRowNumSet,
-					 storageWrite->formatVersion,
-					 storageWrite->firstRowNum,
-					 executorBlockKind,
-					 itemCount,
-					 sourceLen,
-					 *compressedLen);
-				break;
-
-			case AoHeaderKind_BulkDenseContent:
-
-				/*
-				 * Make the header and compute the checksum if necessary.
-				 */
-				AppendOnlyStorageFormat_MakeBulkDenseContentHeader
-					(header,
-					 storageWrite->storageAttributes.checksum,
-					 storageWrite->isFirstRowNumSet,
-					 storageWrite->formatVersion,
-					 storageWrite->firstRowNum,
-					 executorBlockKind,
-					 itemCount,
-					 sourceLen,
-					 *compressedLen);
-				break;
-
-			default:
-				elog(ERROR, "Unexpected Append-Only header kind %d",
-					 storageWrite->getBufferAoHeaderKind);
-				break;
-		}
-
-		if (Debug_appendonly_print_storage_headers)
-		{
-			AppendOnlyStorageWrite_LogBlockHeader(storageWrite,
-												  BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
-												  header);
-		}
-
-		elogif(Debug_appendonly_print_insert, LOG,
-			   "Append-only insert finished compressed block for table '%s' "
-			   "(segment file '%s', header offset in file " INT64_FORMAT ", "
-			   "length = %d, compressed length %d, item count %d, block count " INT64_FORMAT ")",
-			   storageWrite->relationName,
-			   storageWrite->segmentFileName,
-		  BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
-			   sourceLen,
-			   *compressedLen,
-			   itemCount,
-			   storageWrite->bufferCount);
-	}
-	else
-	{
-		/*
-		 * Unable to compress the data to smaller the input size. Solution:
-		 * Indicate in the header we are storing an non-compressed block.
-		 */
-		*compressedLen = 0;
-
-		dataRoundedUpLen = AOStorage_RoundUp(sourceLen, storageWrite->formatVersion);
-
-		/*
-		 * Copy non-compressed data in after the header information.
-		 */
+	int32 dataLen = *compressedLen;
+	if (*compressedLen >= sourceLen) {
+		dataLen = sourceLen;
 		memcpy(dataBuffer, sourceData, sourceLen);
+		*compressedLen = 0;
+	}
+	int32 dataRoundedUpLen = AOStorage_RoundUp(dataLen, storageWrite->formatVersion);
+	AOStorage_ZeroPad(dataBuffer, dataLen, dataRoundedUpLen);
+	switch (storageWrite->getBufferAoHeaderKind)
+	{
+		case AoHeaderKind_SmallContent:
 
-		AOStorage_ZeroPad(dataBuffer, sourceLen, dataRoundedUpLen);
+			/*
+			 * Make the header and compute the checksum if necessary.
+			 */
+			AppendOnlyStorageFormat_MakeSmallContentHeader
+				(header,
+				 storageWrite->storageAttributes.checksum,
+				 storageWrite->isFirstRowNumSet,
+				 storageWrite->formatVersion,
+				 storageWrite->firstRowNum,
+				 executorBlockKind,
+				 itemCount,
+				 sourceLen,
+				 *compressedLen);
+			break;
 
-		/*
-		 * Make the header and compute the checksum if necessary.
-		 */
-		switch (storageWrite->getBufferAoHeaderKind)
-		{
-			case AoHeaderKind_SmallContent:
+		case AoHeaderKind_BulkDenseContent:
 
-				/*
-				 * Make the header and compute the checksum if necessary.
-				 */
+			/*
+			 * Make the header and compute the checksum if necessary.
+			 */
+			AppendOnlyStorageFormat_MakeBulkDenseContentHeader
+				(header,
+				 storageWrite->storageAttributes.checksum,
+				 storageWrite->isFirstRowNumSet,
+				 storageWrite->formatVersion,
+				 storageWrite->firstRowNum,
+				 executorBlockKind,
+				 itemCount,
+				 sourceLen,
+				 *compressedLen);
+			break;
 
-				AppendOnlyStorageFormat_MakeSmallContentHeader
-						(header,
-						 storageWrite->storageAttributes.checksum,
-						 storageWrite->isFirstRowNumSet,
-						 storageWrite->formatVersion,
-						 storageWrite->firstRowNum,
-						 executorBlockKind,
-						 itemCount,
-						 sourceLen,
-						 /* compressedLen */ 0);
-				break;
+		default:
+			elog(ERROR, "Unexpected Append-Only header kind %d",
+				 storageWrite->getBufferAoHeaderKind);
+			break;
+	}
 
-			case AoHeaderKind_BulkDenseContent:
+	if (Debug_appendonly_print_storage_headers)
+	{
+		AppendOnlyStorageWrite_LogBlockHeader(storageWrite,
+											  BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
+											  header);
+	}
 
-				/*
-				 * Make the header and compute the checksum if necessary.
-				 */
-				AppendOnlyStorageFormat_MakeBulkDenseContentHeader
-						(header,
-						 storageWrite->storageAttributes.checksum,
-						 storageWrite->isFirstRowNumSet,
-						 storageWrite->formatVersion,
-						 storageWrite->firstRowNum,
-						 executorBlockKind,
-						 itemCount,
-						 sourceLen,
-						 /* compressedLen */ 0);
-				elog(LOG, "Uncompressed store Append-Only AoHeaderKind_BulkDenseContent");
-				break;
-			default:
-				elog(ERROR, "Unexpected Append-Only header kind %d",
-					 storageWrite->getBufferAoHeaderKind);
-				break;
+	if (Debug_appendonly_print_insert) {
+		char *logComment;
+		if (*compressedLen == 0) {
+			logComment = "--could not compress block, non-compressed stored ";
+		} else {
+			logComment = "--block compressed ";
 		}
 
-
-		if (Debug_appendonly_print_storage_headers)
-		{
-			AppendOnlyStorageWrite_LogBlockHeader(storageWrite,
-												  BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
-												  header);
-		}
-
-		elogif(Debug_appendonly_print_insert, LOG,
-			   "Append-only insert could not compress block for table '%s' smaller -- non-compressed block stored "
-			   "(segment file '%s', header offset in file " INT64_FORMAT ", "
-			   "length = %d, item count %d, block count " INT64_FORMAT ")",
-			   storageWrite->relationName,
-			   storageWrite->segmentFileName,
-		  BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
-			   sourceLen,
-			   itemCount,
-			   storageWrite->bufferCount);
+		elog(LOG,
+			 "Append-only insert block for table '%s' %s"
+				"(segment file '%s', header offset in file " INT64_FORMAT ", "
+				"source length = %d, result length %d item count %d, block count " INT64_FORMAT ")",
+			 storageWrite->relationName,
+			 logComment,
+			 storageWrite->segmentFileName,
+			 BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
+			 sourceLen,
+			 dataLen,
+			 itemCount,
+			 storageWrite->bufferCount);
 	}
 
 	*bufferLen = storageWrite->currentCompleteHeaderLen + dataRoundedUpLen;
