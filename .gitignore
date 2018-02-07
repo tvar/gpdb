@@ -59,7 +59,7 @@ build/
 /contrib/citext/citext.sql
 /depends/.conan/
 /depends/Makefile
-/depends/build/
+/depends/build*/
 /depends/conan_imports_manifest.txt
 /depends/conaninfo.txt
 /depends/config.status
