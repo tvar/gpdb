@@ -1071,7 +1071,7 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 
 		if (cfns == NULL)
 			ereport(ERROR,
-					(errcode(ERRCODE_GP_INTERNAL_ERROR),
+					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("decompression information missing")));
 
 		decompressor = cfns[COMPRESSION_DECOMPRESS];
