@@ -861,7 +861,7 @@ AppendOnlyStorageWrite_VerifyWriteBlock(AppendOnlyStorageWrite *storageWrite,
 {
 	uint8	   *header;
 
-	AOHeaderCheckError checkError = AOHeaderCheckOk;
+	AOHeaderCheckError checkError;
 	AoHeaderKind headerKind;
 	int32		actualHeaderLen;
 	int32		offset;
