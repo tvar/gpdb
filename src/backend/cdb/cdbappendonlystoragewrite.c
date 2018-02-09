@@ -1373,19 +1373,12 @@ AppendOnlyStorageWrite_CompressAppend(AppendOnlyStorageWrite *storageWrite,
 	}
 
 	if (Debug_appendonly_print_insert) {
-		char *logComment;
-		if (*compressedLen == 0) {
-			logComment = "--could not compress block, non-compressed stored ";
-		} else {
-			logComment = "--block compressed ";
-		}
-
 		elog(LOG,
-			 "Append-only insert block for table '%s' %s"
+			 "Append-only insert block for table '%s' stored %s "
 				"(segment file '%s', header offset in file " INT64_FORMAT ", "
 				"source length = %d, result length %d item count %d, block count " INT64_FORMAT ")",
 			 storageWrite->relationName,
-			 logComment,
+			 (*compressedLen > 0) ? "compressed" : "uncompressed (couldn't compress)",
 			 storageWrite->segmentFileName,
 			 BufferedAppendCurrentBufferPosition(&storageWrite->bufferedAppend),
 			 sourceLen,
