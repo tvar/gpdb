@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
 <map>
-    <topicref href="../../550/homenav.html" scope="external" navtitle="Greenplum Database Docs Home"
+    <topicref href="../../580/homenav.html" scope="external" navtitle="Greenplum Database 5.8 Documentation"
         format="html"/>
     <topicref href="utility_guide.xml" navtitle="Utility Guide">
         <topicref href="admin_utilities/util_ref.xml" linking="targetonly">
@@ -15,6 +15,7 @@
             <topicref href="admin_utilities/gpconfig.xml"/>
             <topicref href="admin_utilities/gpcrondump.xml"/>
             <topicref href="admin_utilities/gpdbrestore.xml"/>
+            <topicref href="admin_utilities/gpcopy.xml" otherprops="pivotal"/>
             <topicref href="admin_utilities/gpdeletesystem.xml"/>
             <topicref href="admin_utilities/gpexpand.xml"/>
             <topicref href="admin_utilities/gpfdist.xml"/>
@@ -40,7 +41,9 @@
             <topicref href="admin_utilities/gpstop.xml"/>
             <topicref href="admin_utilities/gpsys.xml"/>
             <topicref href="admin_utilities/gptransfer.xml"/>
-            <topicref href="admin_utilities/pgbouncer-ref.xml"/>
+            <topicref href="admin_utilities/pgbouncer.xml"/>
+            <topicref href="admin_utilities/pgbouncer-ini.xml"/>
+            <topicref href="admin_utilities/pgbouncer-admin.xml"/>
         </topicref>
         <topicref href="cli_ref.xml">
             <topicref href="client_utilities/ClientUtilitySummary.xml" linking="targetonly">

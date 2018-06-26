@@ -1,5 +1,5 @@
 ---
-title: Writing Data to HDFS with PXF (Experimental)
+title: Writing Data to HDFS with PXF
 ---
 
 <!--
@@ -21,8 +21,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<div class="note warning">Warning: Writing text and binary data to HDFS an experimental PXF feature and is not intended for use in a production environment. Experimental features are subject to change without notice in future releases.</div>
-
 You can use the PXF HDFS connector to write text and SequenceFile format binary data to files stored on HDFS. When you create a writable external table with the PXF HDFS connector, you specify the name of a directory on HDFS. When you insert records into the external table, the block(s) of data you insert are written to one or more files in the directory you specified.
 
 This section describes how to use PXF to write HDFS data, including how to create and insert data into a writable external table that references an HDFS directory.
@@ -35,7 +33,7 @@ Before writing HDFS data using PXF, ensure that:
 
 -  You have installed and configured a Hadoop client on each Greenplum Database segment host. Refer to [Installing and Configuring Hadoop Clients for PXF](client_instcfg.html) for instructions.
 - You have initialized and started PXF on your Greenplum Database segment hosts. See [Configuring, Initializing, and Managing PXF](cfginitstart_pxf.html) for PXF initialization, configuration, and startup information.
-- You have granted the `gpadmin` user *read and write* permissions to the appropriate directories in your HDFS file system.
+- You have granted both *read and write* permissions to the HDFS directories that will be accessed as external tables in Greenplum Database. If user impersonation is enabled (the default), you must grant these permissions to each Greenplum Database user/role name that will use external tables that reference the HDFS files. If user impersonation is not enabled, you must grant this permission to the `gpadmin` user.
 
 
 ## <a id="hdfswrite_writeextdata"></a>Writing to PXF External Tables

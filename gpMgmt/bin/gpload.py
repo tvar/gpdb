@@ -900,6 +900,12 @@ def quote(a):
     """
     return "'"+a.replace("'","''").replace('\\','\\\\')+"'"
 
+def quote_no_slash(a):
+    """
+    SQLify a string
+    """
+    return "'"+a.replace("'","''")+"'"
+
 def splitPgpassLine(a):
     """
     If the user has specified a .pgpass file, we'll have to parse it. We simply
@@ -1070,7 +1076,7 @@ def jenkins(data, initval = 0):
     a, b, c = jenkinsmix(a, b, c)
     return c
 
-# MPP-20927 Citibank: gpload external table name problem
+# MPP-20927: gpload external table name problem
 # Not sure if it is used by other components, just leave it here.
 def shortname(name):
     """
@@ -1144,7 +1150,7 @@ class gpload:
 
         # Create Temp and External table names. However external table name could
         # get overwritten with another name later on (see create_external_table_name).
-        # MPP-20927 Citibank: gpload external table name problem. We use uuid to avoid
+        # MPP-20927: gpload external table name problem. We use uuid to avoid
         # external table name confliction.
         self.unique_suffix = str(uuid.uuid1()).replace('-', '_')
         self.staging_table_name = 'temp_staging_gpload_' + self.unique_suffix
@@ -2186,11 +2192,11 @@ class gpload:
         nullas = self.getconfig('gpload:input:null_as', unicode, False)
         self.log(self.DEBUG, "null " + unicode(nullas))
         if nullas != False: # could be empty string
-            self.formatOpts += "null %s " % quote(nullas)
+            self.formatOpts += "null %s " % quote_no_slash(nullas)
         elif formatType=='csv':
             self.formatOpts += "null '' "
         else:
-            self.formatOpts += "null %s " % quote("\N")
+            self.formatOpts += "null %s " % quote_no_slash("\N")
 
 
         esc = self.getconfig('gpload:input:escape', None, None)
@@ -2739,7 +2745,7 @@ class gpload:
                                          stderr=subprocess.PIPE)
 
                     else:
-                        os.kill(a.pid, signal.SIGTERM)
+                        os.kill(a.pid, signal.SIGKILL)
                 except OSError:
                     pass
         self.log(self.LOG, 'terminating all threads')

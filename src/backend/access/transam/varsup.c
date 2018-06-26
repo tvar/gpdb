@@ -81,15 +81,10 @@ GetNewTransactionId(bool isSubXact, bool setProcXid)
 		 * To avoid swamping the postmaster with signals, we issue the
 		 * autovac request only once per 64K transaction starts.  This
 		 * still gives plenty of chances before we get into real trouble.
-		 *
-		 * if (IsUnderPostmaster && (xid % 65536) == 0)
-		 * {
-		 * 		elog(LOG, "GetNewTransactionId: requesting autovac (xid %u xidVacLimit %u)", xid, ShmemVariableCache->xidVacLimit);
-		 * 		SendPostmasterSignal(PMSIGNAL_START_AUTOVAC);
-		 * }
-		 *
-		 * MPP-19652: autovacuum disabled
 		 */
+		if (IsUnderPostmaster && (xid % 65536) == 0)
+			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+
 		if (IsUnderPostmaster &&
 		 TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidStopLimit))
 			ereport(ERROR,
@@ -127,6 +122,34 @@ GetNewTransactionId(bool isSubXact, bool setProcXid)
 	 * more XIDs until there is CLOG space for them.
 	 */
 	TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+	/*
+	 * To aid testing, you can set the debug_burn_xids GUC, to consume XIDs
+	 * faster. If set, we bump the XID counter to the next value divisible by
+	 * 4096, minus one. The idea is to skip over "boring" XID ranges, but
+	 * still step through XID wraparound, CLOG page boundaries etc. one XID
+	 * at a time.
+	 */
+	if (Debug_burn_xids)
+	{
+		TransactionId xx;
+		uint32		r;
+
+		/*
+		 * Based on the minimum of ENTRIES_PER_PAGE (DistributedLog),
+		 * SUBTRANS_XACTS_PER_PAGE, CLOG_XACTS_PER_PAGE.
+		 */
+		const uint32      page_extend_limit = 4 * 1024;
+
+		xx = ShmemVariableCache->nextXid;
+
+		r = xx % page_extend_limit;
+		if (r > 1 && r < (page_extend_limit - 1))
+		{
+			xx += page_extend_limit - r - 1;
+			ShmemVariableCache->nextXid = xx;
+		}
+	}
 
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing
@@ -274,14 +297,10 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 	 * assign hook (too many processes would try to execute the hook,
 	 * resulting in race conditions as well as crashes of those not connected
 	 * to shared memory).  Perhaps this can be improved someday.
-	 *
-	 * MPP-19652: autovacuum disabled
-	 * 
-	 *	xidVacLimit = oldest_datfrozenxid + autovacuum_freeze_max_age;
-	 *	if (xidVacLimit < FirstNormalTransactionId)
-	 *		xidVacLimit += FirstNormalTransactionId;
 	 */
-	xidVacLimit = xidWarnLimit;
+	xidVacLimit = oldest_datfrozenxid + autovacuum_freeze_max_age;
+	if (xidVacLimit < FirstNormalTransactionId)
+		xidVacLimit += FirstNormalTransactionId;
 
 	/* Grab lock for just long enough to set the new limit values */
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
@@ -305,9 +324,17 @@ SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 	 * database per invocation.  Once it's finished cleaning up the oldest
 	 * database, it'll call here, and we'll signal the postmaster to start
 	 * another iteration immediately if there are still any old databases.
-	 *
-	 * MPP-19652: autovacuum disabled
 	 */
+#if 0
+	/*
+	 * In GPDB autovacuum is only enabled for template0 so invoking it
+	 * again after comleting autovacuum of template0 is essentially a
+	 * no-op.
+	 */
+	if (TransactionIdFollowsOrEquals(curXid, xidVacLimit) &&
+		IsUnderPostmaster)
+		SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+#endif
 
 	/* Give an immediate warning if past the wrap warn point */
 	if (TransactionIdFollowsOrEquals(curXid, xidWarnLimit))

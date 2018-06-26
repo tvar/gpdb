@@ -533,7 +533,7 @@ CreateRole(CreateRoleStmt *stmt)
 	{
 		Oid rsgid;
 
-		rsgid = GetResGroupIdForName(resgroup, ShareLock);
+		rsgid = GetResGroupIdForName(resgroup);
 		if (rsgid == InvalidOid)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -543,6 +543,8 @@ CreateRole(CreateRoleStmt *stmt)
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("only superuser can be assigned to admin resgroup")));
+
+		ResGroupCheckForRole(rsgid);
 
 		new_record[Anum_pg_authid_rolresgroup - 1] = ObjectIdGetDatum(rsgid);
 		if (!IsResGroupActivated() && Gp_role == GP_ROLE_DISPATCH)
@@ -1193,7 +1195,7 @@ AlterRole(AlterRoleStmt *stmt)
 								resgroup)));
 		}
 
-		rsgid = GetResGroupIdForName(resgroup, ShareLock);
+		rsgid = GetResGroupIdForName(resgroup);
 		if (rsgid == InvalidOid)
 			ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -1203,6 +1205,7 @@ AlterRole(AlterRoleStmt *stmt)
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("only superuser can be assigned to admin resgroup")));
+		ResGroupCheckForRole(rsgid);
 		new_record[Anum_pg_authid_rolresgroup - 1] =
 			ObjectIdGetDatum(rsgid);
 		new_record_repl[Anum_pg_authid_rolresgroup - 1] = true;

@@ -26,6 +26,9 @@
  * ----- Declarations of Greenplum-specific global variables ------
  */
 
+/* This is used to special case the handling of autovacuum */
+#define TEMPLATE0_DATABASE_NAME "template0"
+
 #ifdef sparc
 #define TUPLE_CHUNK_ALIGN	4
 #else
@@ -239,6 +242,8 @@ extern bool Debug_print_slice_table;
 
 extern bool Debug_resource_group;
 
+extern bool Debug_burn_xids;
+
 /*
  * gp_backup_directIO
  *
@@ -275,6 +280,12 @@ extern bool gp_external_enable_exec;
  * server resources better while not harming performance.
  */
 extern int gp_external_max_segs;
+
+/*
+ * This option determines whether curl verifies the authenticity of the
+ * gpfdist's certificate.
+ */
+extern bool verify_gpfdists_cert;
 
 /*
  * gp_command_count

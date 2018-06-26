@@ -194,7 +194,7 @@ extern bool gp_appendonly_compaction;
  * 0 indicates compact whenever there is hidden data.
  * 10 indicates that a segment should be compacted when more than
  * 10% of the tuples are hidden.
- */ 
+ */
 extern int  gp_appendonly_compaction_threshold;
 extern bool gp_heap_verify_checksums_on_mirror;
 extern bool gp_heap_require_relhasoids_match;
@@ -268,6 +268,8 @@ extern bool allow_segment_DML;
 extern bool gp_allow_rename_relation_without_lock;
 
 extern bool gp_ignore_window_exclude;
+
+extern bool gp_ignore_error_table;
 
 extern int verify_checkpoint_interval;
 
@@ -489,6 +491,7 @@ extern bool optimizer_parallel_union;
 extern bool optimizer_array_constraints;
 extern bool optimizer_cte_inlining;
 extern bool optimizer_enable_space_pruning;
+extern bool optimizer_enable_associativity;
 
 /* Analyze related GUCs for Optimizer */
 extern bool optimizer_analyze_root_partition;
@@ -496,6 +499,9 @@ extern bool optimizer_analyze_midlevel_partition;
 
 extern bool optimizer_use_gpdb_allocators;
 
+
+/* GUCs for slice table*/
+extern int	gp_max_slices;
 
 /**
  * Enable logging of DPE match in optimizer.
@@ -514,7 +520,7 @@ extern char  *gp_email_from;
 extern char  *gp_email_to;
 extern int   gp_email_connect_timeout;
 extern int   gp_email_connect_failures;
-extern int   gp_email_connect_avoid_duration; 
+extern int   gp_email_connect_avoid_duration;
 
 #if USE_SNMP
 extern char   *gp_snmp_community;
@@ -547,6 +553,9 @@ extern bool gp_enable_segment_copy_checking;
 extern int log_count_recovered_files_batch;
 
 extern int writable_external_table_bufsize;
+
+/* Enable passing of query constraints to external table providers */
+extern bool gp_external_enable_filter_pushdown;
 
 typedef enum
 {

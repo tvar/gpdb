@@ -503,7 +503,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
 	CLUSTER COALESCE COLLATE COLUMN COMMENT COMMIT
 	COMMITTED CONCURRENCY CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
-	CONTENT_P CONVERSION_P COPY COST CPU_RATE_LIMIT CREATE CREATEDB
+	CONTENT_P CONVERSION_P COPY COST CPU_RATE_LIMIT CPUSET CREATE CREATEDB
 	CREATEROLE CREATEUSER CROSS CSV CURRENT_P CURRENT_DATE CURRENT_ROLE
 	CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER CURSOR CYCLE
 
@@ -709,6 +709,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc COPY
 			%nonassoc COST
 			%nonassoc CPU_RATE_LIMIT
+			%nonassoc CPUSET
 			%nonassoc CREATEDB
 			%nonassoc CREATEEXTTABLE
 			%nonassoc CREATEROLE
@@ -1341,6 +1342,10 @@ OptResourceGroupElem:
 			| CPU_RATE_LIMIT IntegerOnly
 				{
 					$$ = makeDefElem("cpu_rate_limit", (Node *)$2);
+				}
+			| CPUSET Sconst
+				{
+					$$ = makeDefElem("cpuset", (Node *) makeString($2));
 				}
 			| MEMORY_SHARED_QUOTA IntegerOnly
 				{
@@ -5008,7 +5013,26 @@ OptSingleRowErrorHandling:
 		;
 	
 OptLogErrorTable:
-		LOG_P ERRORS                        { $$ = TRUE; }
+		LOG_P ERRORS INTO qualified_name
+		{
+			if (gp_ignore_error_table) /* ignore the [INTO error-table] clause for backward compatibility */
+			{
+			ereport(WARNING,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Error table is not supported, use gp_read_error_log() and gp_truncate_error_log()"
+					 " to view and manage the internal error log associated with your table.")));
+			}
+			else
+			{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Error table is not supported."),
+					 errhint("Set gp_ignore_error_table to ignore the [INTO error-table] clause for backward compatibility."),
+					 scanner_errposition(@3)));
+			}
+			$$ = TRUE;
+		}
+		| LOG_P ERRORS                        { $$ = TRUE; }
 		| /*EMPTY*/							{ $$ = FALSE; }
 		;
 	
@@ -13049,6 +13073,7 @@ unreserved_keyword:
 			| CONVERSION_P
 			| COPY
 			| COST
+			| CPUSET
 			| CPU_RATE_LIMIT
 			| CREATEDB
 			| CREATEEXTTABLE
@@ -13365,6 +13390,7 @@ PartitionIdentKeyword: ABORT_P
 			| COPY
 			| COST
 			| CPU_RATE_LIMIT
+			| CPUSET
 			| CREATEDB
 			| CREATEEXTTABLE
 			| CREATEROLE

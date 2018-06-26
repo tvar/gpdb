@@ -3362,7 +3362,7 @@ InitializeGUCOptions(void)
 	 * Before log_line_prefix could possibly receive a nonempty setting, make
 	 * sure that timezone processing is minimally alive (see elog.c).
 	 */
-	pg_timezone_initialize();
+	pg_timezone_pre_initialize();
 
 	/*
 	 * Build sorted array of all GUC variables.
@@ -5507,7 +5507,7 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 			else
 				appendStringInfo(&buffer, "RESET %s", stmt->name);
 
-			CdbDispatchCommand(buffer.data, DF_WITH_SNAPSHOT, NULL);
+			CdbDispatchSetCommand(buffer.data, false, false);
 		}
 	}
 }

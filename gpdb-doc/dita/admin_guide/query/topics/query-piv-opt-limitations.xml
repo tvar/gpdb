@@ -20,6 +20,8 @@
       <p>These are unsupported features when GPORCA is enabled (the default): <ul id="ul_ndm_gyl_vp">
           <li>Indexed expressions (an index defined as expression based on one or more columns of
             the table)</li>
+          <li>GIST indexing method. GPORCA supports only B-tree and bitmap indexes. GPORCA ignores
+            indexes created with unsupported methods.</li>
           <li><cmdname>PERCENTILE</cmdname> window function</li>
           <li>External parameters</li>
           <li>These types of partitioned tables:<ul id="ul_v2m_mmc_bt">
@@ -38,17 +40,21 @@
               <li><cmdname>ROWCOMPARE</cmdname></li>
               <li><cmdname>FIELDSELECT</cmdname></li>
             </ul></li>
-          <li>Multiple <cmdname>DISTINCT</cmdname> qualified aggregate functions </li>
+          <li>Aggregate functions that take set operators as input arguments</li>
           <li>Inverse distribution functions</li>
+          <li>Queries that contain UNICODE characters in metadata names, such as table names, and
+            the characters are not compatible with the host system locale</li>
+          <li><codeph>SELECT</codeph>, <codeph>UPDATE</codeph>, and <codeph>DELETE</codeph> commands
+            where a table name is qualified by the <codeph>ONLY</codeph> keyword</li>
         </ul></p>
     </body>
   </topic>
   <topic id="topic_u4t_vxl_vp">
     <title>Performance Regressions</title>
     <body>
-      <p>The following features are known performance regressions that occur with GPORCA
-          enabled:<ul id="ul_zp2_4yl_vp">
-           <li>Short running queries - For GPORCA, short running queries might encounter additional
+      <p>The following features are known performance regressions that occur with GPORCA enabled:<ul
+          id="ul_zp2_4yl_vp">
+          <li>Short running queries - For GPORCA, short running queries might encounter additional
             overhead due to GPORCA enhancements for determining an optimal query execution
             plan.</li>
           <li><cmdname>ANALYZE</cmdname> - For GPORCA, the <cmdname>ANALYZE</cmdname> command

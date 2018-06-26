@@ -732,7 +732,6 @@ with_perl
 with_tcl
 enable_thread_safety
 INCLUDES
-enable_segwalrep
 HAVE_CXX11
 enable_gpcloud
 enable_mapreduce
@@ -863,7 +862,6 @@ enable_ddboost
 enable_netbackup
 enable_mapreduce
 enable_gpcloud
-enable_segwalrep
 enable_thread_safety
 enable_thread_safety_force
 with_tcl
@@ -1547,7 +1545,6 @@ Optional Features:
   --enable-netbackup      enable NetBackup support
   --enable-mapreduce      enable Greenplum Mapreduce support
   --disable-gpcloud       disable gpcloud support
-  --enable-segwalrep      enable segment WAL replication
   --disable-thread-safety  Do not make client libraries thread-safe
   --enable-thread-safety-force  force thread-safety despite thread test failure
   --disable-largefile     omit support for large files
@@ -6981,39 +6978,6 @@ $as_echo "#define HAVE_CXX11 1" >>confdefs.h
 
 
 fi # fi
-
-#
-# Enable segment WAL replication
-#
-
-pgac_args="$pgac_args enable_segwalrep"
-
-# Check whether --enable-segwalrep was given.
-if test "${enable_segwalrep+set}" = set; then :
-  enableval=$enable_segwalrep;
-  case $enableval in
-    yes)
-
-$as_echo "#define USE_SEGWALREP 1" >>confdefs.h
-
-      ;;
-    no)
-      :
-      ;;
-    *)
-      as_fn_error $? "no argument expected for --enable-segwalrep option" "$LINENO" 5
-      ;;
-  esac
-
-else
-  enable_segwalrep=no
-
-fi
-
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: checking whether to build with segment WAL replication... $enable_segwalrep" >&5
-$as_echo "checking whether to build with segment WAL replication... $enable_segwalrep" >&6; }
-
 
 #
 # Include directories
@@ -12521,7 +12485,7 @@ int
 main ()
 {
 
-return strncmp("2.54.", GPORCA_VERSION_STRING, 5);
+return strncmp("2.64.", GPORCA_VERSION_STRING, 5);
 
   ;
   return 0;
@@ -12531,7 +12495,7 @@ if ac_fn_cxx_try_run "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ok" >&5
 $as_echo "ok" >&6; }
 else
-  as_fn_error $? "Your ORCA version is expected to be 2.54.XXX" "$LINENO" 5
+  as_fn_error $? "Your ORCA version is expected to be 2.64.XXX" "$LINENO" 5
 
 fi
 rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \

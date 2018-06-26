@@ -36,6 +36,7 @@
 #include "replication/walsender.h"
 #include "storage/bfz.h"
 #include "storage/proc.h"
+#include "tcop/idle_resource_cleaner.h"
 #include "utils/guc_tables.h"
 #include "utils/inval.h"
 #include "utils/resscheduler.h"
@@ -95,6 +96,7 @@ static const char *assign_system_cache_flush_force(const char *newval, bool doit
 static const char *assign_gp_idf_deduplicate(const char *newval, bool doit,
 						  GucSource source);
 static const char *assign_explain_memory_verbosity(const char *newval, bool doit, GucSource source);
+static bool assign_verify_gpfdists_cert(bool newval, bool doit, GucSource source);
 static bool assign_dispatch_log_stats(bool newval, bool doit, GucSource source);
 static bool assign_gp_hashagg_default_nbatches(int newval, bool doit, GucSource source);
 
@@ -432,6 +434,8 @@ static char *gp_test_system_cache_flush_force_str;
 /* include file/line information to stack traces */
 bool		gp_log_stack_trace_lines;
 
+/* ignore INTO error-table clauses for backwards compatibility */
+bool		gp_ignore_error_table = false;
 
 /*
  * If set to true, we will silently insert into the correct leaf
@@ -569,10 +573,14 @@ bool 		optimizer_parallel_union;
 bool		optimizer_array_constraints;
 bool		optimizer_cte_inlining;
 bool		optimizer_enable_space_pruning;
+bool		optimizer_enable_associativity;
 
 /* Analyze related GUCs for Optimizer */
 bool		optimizer_analyze_root_partition;
 bool		optimizer_analyze_midlevel_partition;
+
+/* GUCs for slice table*/
+int			gp_max_slices;
 
 /* System Information */
 static int	gp_server_version_num;
@@ -594,6 +602,8 @@ bool		gp_enable_segment_copy_checking = true;
 char	   *gp_default_storage_options = NULL;
 
 int			writable_external_table_bufsize = 64;
+
+bool		gp_external_enable_filter_pushdown = false;
 
 IndexCheckType gp_indexcheck_insert = INDEX_CHECK_NONE;
 IndexCheckType gp_indexcheck_vacuum = INDEX_CHECK_NONE;
@@ -1201,6 +1211,16 @@ struct config_bool ConfigureNamesBool_gp[] =
 			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
 		},
 		&Debug_appendonly_rezero_quicklz_decompress_scratch,
+		false, NULL, NULL
+	},
+
+	{
+		{"debug_burn_xids", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Consume a lot of XIDs, for testing purposes."),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+		},
+		&Debug_burn_xids,
 		false, NULL, NULL
 	},
 
@@ -1986,7 +2006,7 @@ struct config_bool ConfigureNamesBool_gp[] =
 	{
 		{"gp_enable_query_metrics", PGC_POSTMASTER, UNGROUPED,
 			gettext_noop("Enable all query metrics collection."),
-			NULL	
+			NULL
 		},
 		&gp_enable_query_metrics,
 		false, NULL, NULL
@@ -3220,6 +3240,7 @@ struct config_bool ConfigureNamesBool_gp[] =
 		&vmem_process_interrupt,
 		false, NULL, NULL
 	},
+
 	{
 		{"execute_pruned_plan", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Prune plan to discard unwanted plan nodes for each slice before execution"),
@@ -3229,6 +3250,7 @@ struct config_bool ConfigureNamesBool_gp[] =
 		&execute_pruned_plan,
 		true, NULL, NULL
 	},
+
 	{
 		{"pljava_classpath_insecure", PGC_POSTMASTER, CUSTOM_OPTIONS,
 			gettext_noop("Allow pljava_classpath to be set by user per session"),
@@ -3238,6 +3260,7 @@ struct config_bool ConfigureNamesBool_gp[] =
 		&pljava_classpath_insecure,
 		false, assign_pljava_classpath_insecure, NULL
 	},
+
 	{
 		{"gp_enable_segment_copy_checking", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Enable check the distribution key restriction on segment for command \"COPY FROM ON SEGMENT\"."),
@@ -3247,6 +3270,46 @@ struct config_bool ConfigureNamesBool_gp[] =
 		&gp_enable_segment_copy_checking,
 		true, NULL, NULL
 	},
+
+	{
+		{"gp_ignore_error_table", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
+			gettext_noop("Ignore INTO error-table in external table and COPY."),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
+		},
+		&gp_ignore_error_table,
+		false, NULL, NULL
+	},
+
+	{
+		{"optimizer_enable_associativity", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables Join Associativity in optimizer"),
+			NULL
+		},
+		&optimizer_enable_associativity,
+		false, NULL, NULL
+	},
+
+	{
+		{"verify_gpfdists_cert", PGC_USERSET, EXTERNAL_TABLES,
+			gettext_noop("Verifies the authenticity of the gpfdist's certificate"),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
+		},
+		&verify_gpfdists_cert,
+		true, assign_verify_gpfdists_cert, NULL
+	},
+
+	{
+		{"gp_external_enable_filter_pushdown", PGC_USERSET, EXTERNAL_TABLES,
+			gettext_noop("Enable passing of query constraints to external table providers"),
+			NULL,
+			GUC_GPDB_ADDOPT
+		},
+		&gp_external_enable_filter_pushdown,
+		false, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL
@@ -4544,12 +4607,12 @@ struct config_int ConfigureNamesInt_gp[] =
 
 	{
 		{"optimizer_array_expansion_threshold", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Item limit for expansion of arrays in WHERE clause to disjunctive form."),
+			gettext_noop("Item limit for expansion of arrays in WHERE clause for constraint derivation."),
 			NULL,
 			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
 		},
 		&optimizer_array_expansion_threshold,
-		25, 0, INT_MAX, NULL, NULL
+		100, 0, INT_MAX, NULL, NULL
 	},
 
 	{
@@ -4670,6 +4733,16 @@ struct config_int ConfigureNamesInt_gp[] =
 		},
 		&gp_server_version_num,
 		GP_VERSION_NUM, GP_VERSION_NUM, GP_VERSION_NUM, NULL, NULL
+	},
+
+	{
+		{"gp_max_slices", PGC_USERSET, PRESET_OPTIONS,
+			gettext_noop("Maximum slices for a single query"),
+			NULL,
+			GUC_GPDB_ADDOPT | GUC_NOT_IN_SAMPLE
+		},
+		&gp_max_slices,
+		0, 0, INT_MAX, NULL, NULL
 	},
 
 	/* End-of-list marker */
@@ -5298,7 +5371,7 @@ struct config_string ConfigureNamesString_gp[] =
 		{"pljava_classpath", PGC_SUSET, CUSTOM_OPTIONS,
 			gettext_noop("classpath used by the the JVM"),
 			NULL,
-			GUC_GPDB_ADDOPT | GUC_NOT_IN_SAMPLE 
+			GUC_GPDB_ADDOPT | GUC_NOT_IN_SAMPLE
 		},
 		&pljava_classpath,
 		"", NULL, NULL
@@ -5856,6 +5929,15 @@ assign_optimizer(bool newval, bool doit, GucSource source)
 		}
 	}
 
+	return true;
+}
+
+static bool
+assign_verify_gpfdists_cert(bool newval, bool doit, GucSource source)
+{
+	if (!newval && Gp_role == GP_ROLE_DISPATCH)
+		elog(WARNING, "verify_gpfdists_cert=off. Greenplum Database will stop validating "
+				"the gpfidsts SSL certificate for connections between segments and gpfdists");
 	return true;
 }
 

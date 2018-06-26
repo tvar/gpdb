@@ -181,6 +181,7 @@ typedef enum FaultInjectorIdentifier_e {
 	AppendOnlyInsert,
 	AppendOnlyDelete,
 	AppendOnlyUpdate,
+	AppendOnlySkipCompression,
 
 	ReindexDB,
 	ReindexRelation,
@@ -230,6 +231,12 @@ typedef enum FaultInjectorIdentifier_e {
 
 	BeforeReadCommand,
 
+	CopyFromHighProcessed,
+
+	VacuumUpdateDatFrozenXid,
+
+	CreateResourceGroupFail,
+
 	/* INSERT has to be done before that line */
 	FaultInjectorIdMax,
 	
@@ -277,6 +284,7 @@ typedef enum FaultInjectorType_e {
 
 	FaultInjectorTypeCheckpointAndPanic,
 
+	FaultInjectorTypeWaitUntilTriggered,
 	/* INSERT has to be done before that line */
 	FaultInjectorTypeMax,
 	

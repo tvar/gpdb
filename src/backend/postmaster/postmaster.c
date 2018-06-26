@@ -1188,14 +1188,10 @@ PostmasterMain(int argc, char *argv[])
  * This value of max_wal_senders will be inherited by all the child processes
  * through fork(). This value is used by XLogIsNeeded().
  */
-#ifdef USE_SEGWALREP
-		max_wal_senders = 1;
-#else
-	if ( GpIdentity.segindex == MASTER_CONTENT_ID)
-		max_wal_senders = 1;
-	else
-		max_wal_senders = 0;
-#endif
+    if ( GpIdentity.segindex == MASTER_CONTENT_ID)
+      max_wal_senders = 1;
+    else
+      max_wal_senders = 0;
 
 	if ( GpIdentity.numsegments < 0 )
 	{
@@ -3587,19 +3583,6 @@ processPrimaryMirrorTransitionRequest(Port *port, void *pkt)
 	}
 }
 
-#ifdef USE_SEGWALREP
-static void
-sendPrimaryMirrorTransitionQuery()
-{
-	StringInfoData buf;
-
-	initStringInfo(&buf);
-
-	pq_beginmessage(&buf, '\0');
-	pq_endmessage(&buf);
-	pq_flush();
-}
-#else
 static void
 sendPrimaryMirrorTransitionQuery(uint32 mode, uint32 segstate, uint32 datastate, uint32 faulttype)
 {
@@ -3617,7 +3600,6 @@ sendPrimaryMirrorTransitionQuery(uint32 mode, uint32 segstate, uint32 datastate,
 	pq_endmessage(&buf);
 	pq_flush();
 }
-#endif
 
 /**
  * Called during startup packet processing.
@@ -3628,10 +3610,6 @@ sendPrimaryMirrorTransitionQuery(uint32 mode, uint32 segstate, uint32 datastate,
 static void
 processPrimaryMirrorTransitionQuery(Port *port, void *pkt)
 {
-#ifdef USE_SEGWALREP
-	/* Send FTS probe response */
-	sendPrimaryMirrorTransitionQuery();
-#else
 	PrimaryMirrorTransitionPacket *transition = (PrimaryMirrorTransitionPacket *) pkt;
 	int length;
 
@@ -3714,7 +3692,6 @@ processPrimaryMirrorTransitionQuery(Port *port, void *pkt)
 	sendPrimaryMirrorTransitionQuery((uint32)pm_mode, (uint32)s_state, (uint32)d_state, (uint32)f_type);
 
 	return;
-#endif
 }
 
 /*
@@ -7866,23 +7843,27 @@ StartAutovacuumWorker(void)
 	 */
 	if (canAcceptConnections() == CAC_OK)
 	{
-		/*
-		 * Compute the cancel key that will be assigned to this session. We
-		 * probably don't need cancel keys for autovac workers, but we'd
-		 * better have something random in the field to prevent unfriendly
-		 * people from sending cancels to them.
-		 */
-		MyCancelKey = PostmasterRandom();
-
 		bn = (Backend *) malloc(sizeof(Backend));
 		if (bn)
 		{
+			/*
+			 * Compute the cancel key that will be assigned to this session. We
+			 * probably don't need cancel keys for autovac workers, but we'd
+			 * better have something random in the field to prevent unfriendly
+			 * people from sending cancels to them.
+			 */
+			MyCancelKey = PostmasterRandom();
+			bn->cancel_key = MyCancelKey;
+
+			/* Autovac workers are not dead_end and need a child slot */
+			bn->dead_end = false;
+			bn->child_slot = MyPMChildSlot = AssignPostmasterChildSlot();
+
 			bn->pid = StartAutoVacWorker();
 			if (bn->pid > 0)
 			{
-				bn->cancel_key = MyCancelKey;
 				bn->is_autovacuum = true;
-				bn->dead_end = false;
+
 				DLAddHead(BackendList, DLNewElem(bn));
 #ifdef EXEC_BACKEND
 				ShmemBackendArrayAdd(bn);
@@ -7895,6 +7876,7 @@ StartAutovacuumWorker(void)
 			 * fork failed, fall through to report -- actual error message was
 			 * logged by StartAutoVacWorker
 			 */
+			(void) ReleasePostmasterChildSlot(bn->child_slot);
 			free(bn);
 		}
 		else

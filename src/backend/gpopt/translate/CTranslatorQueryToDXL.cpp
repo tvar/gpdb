@@ -811,6 +811,7 @@ CTranslatorQueryToDXL::PdxlnCTAS()
 											m_pidgtorCol->UlNextId(),
 											iResno /* iAttno */,
 											pmdid,
+											pdxlopIdent->ITypeModifier(),
 											false /* fDropped */
 											);
 		pdrgpdxlcd->Append(pdxlcd);
@@ -1598,7 +1599,8 @@ CTranslatorQueryToDXL::PdxlnWindow
 																					m_pmp,
 																					GPOS_NEW(m_pmp) CMDName(m_pmp, pmdnameAlias->Pstr()),
 																					ulColId,
-																					GPOS_NEW(m_pmp) CMDIdGPDB(gpdb::OidExprType((Node*) pte->expr))
+																					GPOS_NEW(m_pmp) CMDIdGPDB(gpdb::OidExprType((Node*) pte->expr)),
+																					gpdb::IExprTypeMod((Node*) pte->expr)
 																					)
 																		)
 															);
@@ -2373,6 +2375,7 @@ CTranslatorQueryToDXL::PdxlnConstTableGet() const
 										m_pidgtorCol->UlNextId(),
 										1 /* iAttno */,
 										GPOS_NEW(m_pmp) CMDIdGPDB(pmdid->OidObjectId()),
+										IDefaultTypeModifier,
 										false /* fDropped */
 										);
 	pdrgpdxlcd->Append(pdxlcd);
@@ -2976,6 +2979,14 @@ CTranslatorQueryToDXL::PdxlnFromRelation
 	ULONG //ulCurrQueryLevel 
 	)
 {
+	if (false == prte->inh)
+	{
+		GPOS_ASSERT(RTE_RELATION == prte->rtekind);
+		// RangeTblEntry::inh is set to false iff there is ONLY in the FROM
+		// clause. c.f. transformTableEntry, called from transformFromClauseItem
+		GPOS_RAISE(gpdxl::ExmaDXL, gpdxl::ExmiQuery2DXLUnsupportedFeature, GPOS_WSZ_LIT("ONLY in the FROM clause"));
+	}
+
 	// construct table descriptor for the scan node from the range table entry
 	CDXLTableDescr *pdxltabdesc = CTranslatorUtils::Pdxltabdesc(m_pmp, m_pmda, m_pidgtorCol, prte, &m_fHasDistributedTables);
 
@@ -3068,7 +3079,7 @@ CTranslatorQueryToDXL::PdxlnFromValues
 			Expr *pexpr = (Expr *) lfirst(plcColumn);
 
 			CHAR *szColName = (CHAR *) strVal(gpdb::PvListNth(plColnames, ulColPos));
-			ULONG ulColId = ULONG_MAX;	
+			ULONG ulColId = gpos::ulong_max;
 			if (IsA(pexpr, Const))
 			{
 				// extract the datum
@@ -3089,6 +3100,7 @@ CTranslatorQueryToDXL::PdxlnFromValues
 													ulColId,
 													ulColPos + 1 /* iAttno */,
 													GPOS_NEW(m_pmp) CMDIdGPDB(pconst->consttype),
+													pconst->consttypmod,
 													false /* fDropped */
 													);
 
@@ -3120,13 +3132,14 @@ CTranslatorQueryToDXL::PdxlnFromValues
 														ulColId,
 														ulColPos + 1 /* iAttno */,
 														GPOS_NEW(m_pmp) CMDIdGPDB(gpdb::OidExprType((Node*) pexpr)),
+														gpdb::IExprTypeMod((Node*) pexpr),
 														false /* fDropped */
 														);
 					pdrgpdxlcd->Append(pdxlcd);
 				}
 			}
 
-			GPOS_ASSERT(ULONG_MAX != ulColId);
+			GPOS_ASSERT(gpos::ulong_max != ulColId);
 
 			pdrgpulColIds->Append(GPOS_NEW(m_pmp) ULONG(ulColId));
 			ulColPos++;
@@ -3916,7 +3929,8 @@ CTranslatorQueryToDXL::PdrgpdxlnConstructOutputCols
 
 		// create a column reference
 		IMDId *pmdidType = GPOS_NEW(m_pmp) CMDIdGPDB(gpdb::OidExprType( (Node*) pte->expr));
-		CDXLColRef *pdxlcr = GPOS_NEW(m_pmp) CDXLColRef(m_pmp, pmdname, ulColId, pmdidType);
+		INT iTypeModifier = gpdb::IExprTypeMod((Node*) pte->expr);
+		CDXLColRef *pdxlcr = GPOS_NEW(m_pmp) CDXLColRef(m_pmp, pmdname, ulColId, pmdidType, iTypeModifier);
 		CDXLScalarIdent *pdxlopIdent = GPOS_NEW(m_pmp) CDXLScalarIdent
 												(
 												m_pmp,

@@ -42,32 +42,171 @@
  * So far these operations are mainly for CPU rate limitation and accounting.
  */
 
-#define CGROUP_ERROR_PREFIX "cgroup is not properly configured: "
-#define CGROUP_ERROR(...) do { \
-	elog(ERROR, CGROUP_ERROR_PREFIX __VA_ARGS__); \
-} while (false)
+#define CGROUP_ERROR(...) elog(ERROR, __VA_ARGS__)
+#define CGROUP_CONFIG_ERROR(...) \
+	CGROUP_ERROR("cgroup is not properly configured: " __VA_ARGS__)
 
 #define PROC_MOUNTS "/proc/self/mounts"
 #define MAX_INT_STRING_LEN 20
+#define MAX_RETRY 10
+
+/*
+ * cgroup memory permission is only mandatory on 6.x and master;
+ * on 5.x we need to make it optional to provide backward compatibilities.
+ */
+#define CGROUP_MEMORY_IS_OPTIONAL (GP_VERSION_NUM < 60000)
+/*
+ * cpuset permission is only mandatory on 6.x and master;
+ * on 5.x we need to make it optional to provide backward compatibilities.
+ */
+#define CGROUP_CPUSET_IS_OPTIONAL (GP_VERSION_NUM < 60000)
+
+typedef struct PermItem PermItem;
+typedef struct PermList PermList;
+
+struct PermItem
+{
+	const char	*comp;
+	const char	*prop;
+	int			perm;
+};
+
+struct PermList
+{
+	const PermItem	*items;
+	bool			optional;
+	bool			*presult;
+};
+
+#define foreach_perm_list(i, lists) \
+	for ((i) = 0; (lists)[(i)].items; (i)++)
+
+#define foreach_perm_item(i, items) \
+	for ((i) = 0; (items)[(i)].comp; (i)++)
 
 static char * buildPath(Oid group, const char *base, const char *comp, const char *prop, char *path, size_t pathsize);
 static int lockDir(const char *path, bool block);
 static void unassignGroup(Oid group, const char *comp, int fddir);
 static bool createDir(Oid group, const char *comp);
-static bool removeDir(Oid group, const char *comp, bool unassign);
+static bool removeDir(Oid group, const char *comp, const char *prop, bool unassign);
 static int getCpuCores(void);
 static size_t readData(const char *path, char *data, size_t datasize);
-static void writeData(const char *path, char *data, size_t datasize);
+static void writeData(const char *path, const char *data, size_t datasize);
 static int64 readInt64(Oid group, const char *base, const char *comp, const char *prop);
 static void writeInt64(Oid group, const char *base, const char *comp, const char *prop, int64 x);
+static bool permListCheck(const PermList *permlist, Oid group, bool report);
 static bool checkPermission(Oid group, bool report);
+static bool checkCpuSetPermission(Oid group, bool report);
 static void getMemoryInfo(unsigned long *ram, unsigned long *swap);
 static void getCgMemoryInfo(uint64 *cgram, uint64 *cgmemsw);
 static int getOvercommitRatio(void);
-static void detectCgroupMountPoint(void);
+static bool detectCgroupMountPoint(void);
+static void createDefaultCpuSetGroup(void);
 
+/*
+ * currentGroupIdInCGroup & oldCaps are used for reducing redundant
+ * file operations
+ */
 static Oid currentGroupIdInCGroup = InvalidOid;
+static ResGroupCaps oldCaps;
+
 static char cgdir[MAXPGPATH];
+
+/*
+ * These checks should keep in sync with gpMgmt/bin/gpcheckresgroupimpl
+ */
+static const PermItem perm_items_cpu[] =
+{
+	{ "cpu", "", R_OK | W_OK | X_OK },
+	{ "cpu", "cgroup.procs", R_OK | W_OK },
+	{ "cpu", "cpu.cfs_period_us", R_OK | W_OK },
+	{ "cpu", "cpu.cfs_quota_us", R_OK | W_OK },
+	{ "cpu", "cpu.shares", R_OK | W_OK },
+	{ NULL, NULL, 0 }
+};
+static const PermItem perm_items_cpu_acct[] =
+{
+	{ "cpuacct", "", R_OK | W_OK | X_OK },
+	{ "cpuacct", "cgroup.procs", R_OK | W_OK },
+	{ "cpuacct", "cpuacct.usage", R_OK },
+	{ "cpuacct", "cpuacct.stat", R_OK },
+	{ NULL, NULL, 0 }
+};
+static const PermItem perm_items_cpuset[] =
+{
+	{ "cpuset", "", R_OK | W_OK | X_OK },
+	{ "cpuset", "cgroup.procs", R_OK | W_OK },
+	{ "cpuset", "cpuset.cpus", R_OK | W_OK },
+	{ "cpuset", "cpuset.mems", R_OK | W_OK },
+	{ NULL, NULL, 0 }
+};
+static const PermItem perm_items_memory[] =
+{
+	{ "memory", "", R_OK | W_OK | X_OK },
+	{ "memory", "memory.limit_in_bytes", R_OK | W_OK },
+	{ "memory", "memory.usage_in_bytes", R_OK },
+	{ NULL, NULL, 0 }
+};
+static const PermItem perm_items_swap[] =
+{
+	{ "memory", "", R_OK | W_OK | X_OK },
+	{ "memory", "memory.memsw.limit_in_bytes", R_OK | W_OK },
+	{ "memory", "memory.memsw.usage_in_bytes", R_OK },
+	{ NULL, NULL, 0 }
+};
+
+/*
+ * just for cpuset check, same as the cpuset Permlist in permlists
+ */
+static const PermList cpusetPermList = {
+	perm_items_cpuset,
+	CGROUP_CPUSET_IS_OPTIONAL,
+	&gp_resource_group_enable_cgroup_cpuset,
+};
+
+/*
+ * Permission groups.
+ */
+static const PermList permlists[] =
+{
+	/*
+	 * swap permissions are optional.
+	 *
+	 * cgroup/memory/memory.memsw.* is only available if
+	 * - CONFIG_MEMCG_SWAP_ENABLED=on in kernel config, or
+	 * - swapaccount=1 in kernel cmdline.
+	 *
+	 * Without these interfaces the swap usage can not be limited or accounted
+	 * via cgroup.
+	 */
+	{ perm_items_swap, true, &gp_resource_group_enable_cgroup_swap },
+
+	/*
+	 * memory permissions can be mandatory or optional depends on the switch.
+	 *
+	 * resgroup memory auditor is introduced in 6.0 devel and backported
+	 * to 5.x branch since 5.6.1.  To provide backward compatibilities memory
+	 * permissions are optional on 5.x branch.
+	 */
+	{ perm_items_memory, CGROUP_MEMORY_IS_OPTIONAL,
+		&gp_resource_group_enable_cgroup_memory },
+
+	/* cpu/cpuacct permissions are mandatory */
+	{ perm_items_cpu, false, NULL },
+	{ perm_items_cpu_acct, false, NULL },
+
+	/*
+	 * cpuset permissions can be mandatory or optional depends on the switch.
+	 *
+	 * resgroup cpuset is introduced in 6.0 devel and backported
+	 * to 5.x branch since 5.6.1.  To provide backward compatibilities cpuset
+	 * permissions are optional on 5.x branch.
+	 */
+	{ perm_items_cpuset, CGROUP_CPUSET_IS_OPTIONAL,
+		&gp_resource_group_enable_cgroup_cpuset},
+
+	{ NULL, false, NULL }
+};
 
 /*
  * Build path string with parameters.
@@ -88,10 +227,18 @@ buildPath(Oid group,
 	if (!base)
 		base = "gpdb";
 
-	if (group != RESGROUP_ROOT_ID)
+	if (group == RESGROUP_COMPROOT_ID)
+	{
+		snprintf(path, pathsize, "%s/%s/%s", cgdir, comp, prop);
+	}
+	else if (group != RESGROUP_ROOT_ID)
+	{
 		snprintf(path, pathsize, "%s/%s/%s/%d/%s", cgdir, comp, base, group, prop);
+	}
 	else
+	{
 		snprintf(path, pathsize, "%s/%s/%s/%s", cgdir, comp, base, prop);
+	}
 
 	return path;
 }
@@ -239,7 +386,7 @@ lockDir(const char *path, bool block)
 	}
 
 	int flags = LOCK_EX;
-	if (block)
+	if (!block)
 		flags |= LOCK_NB;
 
 	while (flock(fddir, flags))
@@ -317,10 +464,11 @@ createDir(Oid group, const char *comp)
  * - if unassign is true then unassign all the processes first before removal;
  */
 static bool
-removeDir(Oid group, const char *comp, bool unassign)
+removeDir(Oid group, const char *comp, const char *prop, bool unassign)
 {
 	char path[MAXPGPATH];
 	size_t pathsize = sizeof(path);
+	int retry = unassign ? 0 : MAX_RETRY - 1;
 	int fddir;
 
 	buildPath(group, NULL, comp, "", path, pathsize);
@@ -336,24 +484,42 @@ removeDir(Oid group, const char *comp, bool unassign)
 		return true;
 	}
 
-	if (unassign)
-		unassignGroup(group, comp, fddir);
+	/*
+	 * Reset the corresponding control file to zero
+	 */
+	if (prop)
+		writeInt64(group, NULL, comp, prop, 0);
 
-	if (rmdir(path))
+	while (++retry <= MAX_RETRY)
 	{
-		int err = errno;
+		if (unassign)
+			unassignGroup(group, comp, fddir);
 
-		close(fddir);
+		if (rmdir(path))
+		{
+			int err = errno;
 
-		/*
-		 * we don't check for ENOENT again as we already accquired the lock
-		 * on this dir and the dir still exist at that time, so if then
-		 * it's removed by other processes then it's a bug.
-		 */
-		CGROUP_ERROR("can't remove dir: %s: %s", path, strerror(err));
+			if (err == EBUSY && unassign && retry < MAX_RETRY)
+			{
+				elog(DEBUG1, "can't remove dir, will retry: %s: %s",
+					 path, strerror(err));
+				pg_usleep(1000);
+				continue;
+			}
+
+			/*
+			 * we don't check for ENOENT again as we already accquired the lock
+			 * on this dir and the dir still exist at that time, so if then
+			 * it's removed by other processes then it's a bug.
+			 */
+			elog(DEBUG1, "can't remove dir, ignore the error: %s: %s",
+				 path, strerror(err));
+		}
+		break;
 	}
 
-	elog(DEBUG1, "cgroup dir '%s' removed", path);
+	if (retry <= MAX_RETRY)
+		elog(DEBUG1, "cgroup dir '%s' removed", path);
 
 	/* close() also releases the lock */
 	close(fddir);
@@ -426,7 +592,7 @@ readData(const char *path, char *data, size_t datasize)
  * Write datasize bytes to a file.
  */
 static void
-writeData(const char *path, char *data, size_t datasize)
+writeData(const char *path, const char *data, size_t datasize)
 {
 	int fd = open(path, O_WRONLY);
 	if (fd < 0)
@@ -484,54 +650,120 @@ writeInt64(Oid group, const char *base, const char *comp, const char *prop, int6
 }
 
 /*
+ * Read a string value from a cgroup interface file.
+ */
+static void
+readStr(Oid group, const char *base, const char *comp, const char *prop, char *str, int len)
+{
+	char data[MAX_INT_STRING_LEN];
+	size_t datasize = sizeof(data);
+	char path[MAXPGPATH];
+	size_t pathsize = sizeof(path);
+
+	buildPath(group, base, comp, prop, path, pathsize);
+
+	readData(path, data, datasize);
+
+	StrNCpy(str, data, len);
+}
+
+/*
+ * Write an string value to a cgroup interface file.
+ */
+static void
+writeStr(Oid group, const char *base, const char *comp, const char *prop,
+		 const char *strValue)
+{
+	char path[MAXPGPATH];
+	size_t pathsize = sizeof(path);
+
+	buildPath(group, base, comp, prop, path, pathsize);
+	writeData(path, strValue, strlen(strValue));
+}
+
+/*
+ * Check a list of permissions on group.
+ *
+ * - if all the permissions are met then return true;
+ * - otherwise:
+ *   - raise an error if report is true and permlist is not optional;
+ *   - or return false;
+ */
+static bool
+permListCheck(const PermList *permlist, Oid group, bool report)
+{
+	char path[MAXPGPATH];
+	size_t pathsize = sizeof(path);
+	int i;
+
+	if (group == RESGROUP_ROOT_ID && permlist->presult)
+		*permlist->presult = false;
+
+	foreach_perm_item(i, permlist->items)
+	{
+		const char	*comp = permlist->items[i].comp;
+		const char	*prop = permlist->items[i].prop;
+		int			perm = permlist->items[i].perm;
+
+		buildPath(group, NULL, comp, prop, path, pathsize);
+
+		if (access(path, perm))
+		{
+			/* No such file or directory / Permission denied */
+
+			if (report && !permlist->optional)
+			{
+				CGROUP_CONFIG_ERROR("can't access %s '%s': %s",
+									prop[0] ? "file" : "directory",
+									path,
+									strerror(errno));
+			}
+			return false;
+		}
+	}
+
+	if (group == RESGROUP_ROOT_ID && permlist->presult)
+		*permlist->presult = true;
+
+	return true;
+}
+
+/*
  * Check permissions on group's cgroup dir & interface files.
  *
- * - if report is true then raise an error on and bad permission,
- *   otherwise only return false;
+ * - if report is true then raise an error if any mandatory permission
+ *   is not met;
+ * - otherwise only return false;
  */
 static bool
 checkPermission(Oid group, bool report)
 {
-	char path[MAXPGPATH];
-	size_t pathsize = sizeof(path);
-	const char *comp;
+	int i;
 
-#define __CHECK(prop, perm) do { \
-	buildPath(group, NULL, comp, prop, path, pathsize); \
-	if (access(path, perm)) \
-	{ \
-		if (report) \
-		{ \
-			CGROUP_ERROR("can't access %s '%s': %s", \
-						 prop[0] ? "file" : "directory", \
-						 path, \
-						 strerror(errno)); \
-		} \
-		return false; \
-	} \
-} while (0)
+	foreach_perm_list(i, permlists)
+	{
+		const PermList *permlist = &permlists[i];
 
-    /*
-     * These checks should keep in sync with
-     * gpMgmt/bin/gpcheckresgroupimpl
-     */
+		if (!permListCheck(permlist, group, report) && !permlist->optional)
+			return false;
+	}
 
-	comp = "cpu";
+	return true;
+}
 
-	__CHECK("", R_OK | W_OK | X_OK);
-	__CHECK("cgroup.procs", R_OK | W_OK);
-	__CHECK("cpu.cfs_period_us", R_OK | W_OK);
-	__CHECK("cpu.cfs_quota_us", R_OK | W_OK);
-	__CHECK("cpu.shares", R_OK | W_OK);
+/*
+ * Same as checkPermission, just check cpuset dir & interface files
+ *
+ */
+static bool
+checkCpuSetPermission(Oid group, bool report)
+{
+	if (!gp_resource_group_enable_cgroup_cpuset)
+		return true;
 
-	comp = "cpuacct";
-
-	__CHECK("", R_OK | W_OK | X_OK);
-	__CHECK("cgroup.procs", R_OK | W_OK);
-	__CHECK("cpuacct.usage", R_OK);
-	__CHECK("cpuacct.stat", R_OK);
-
-#undef __CHECK
+	if (!permListCheck(&cpusetPermList, group, report) &&
+		!cpusetPermList.optional)
+		return false;
 
 	return true;
 }
@@ -552,7 +784,17 @@ static void
 getCgMemoryInfo(uint64 *cgram, uint64 *cgmemsw)
 {
 	*cgram = readInt64(RESGROUP_ROOT_ID, "", "memory", "memory.limit_in_bytes");
-	*cgmemsw = readInt64(RESGROUP_ROOT_ID, "", "memory", "memory.memsw.limit_in_bytes");
+
+	if (gp_resource_group_enable_cgroup_swap)
+	{
+		*cgmemsw = readInt64(RESGROUP_ROOT_ID, "",
+							 "memory", "memory.memsw.limit_in_bytes");
+	}
+	else
+	{
+		elog(DEBUG1, "swap memory is unlimited");
+		*cgmemsw = (uint64) -1LL;
+	}
 }
 
 /* get vm.overcommit_ratio */
@@ -573,18 +815,18 @@ getOvercommitRatio(void)
 }
 
 /* detect cgroup mount point */
-static void
+static bool
 detectCgroupMountPoint(void)
 {
 	struct mntent *me;
 	FILE *fp;
 
 	if (cgdir[0])
-		return;
+		return true;
 
 	fp = setmntent(PROC_MOUNTS, "r");
 	if (fp == NULL)
-		CGROUP_ERROR("can not open '%s' for read", PROC_MOUNTS);
+		CGROUP_CONFIG_ERROR("can not open '%s' for read", PROC_MOUNTS);
 
 
 	while ((me = getmntent(fp)))
@@ -598,7 +840,7 @@ detectCgroupMountPoint(void)
 
 		p = strrchr(cgdir, '/');
 		if (p == NULL)
-			CGROUP_ERROR("cgroup mount point parse error: %s", cgdir);
+			CGROUP_CONFIG_ERROR("cgroup mount point parse error: %s", cgdir);
 		else
 			*p = 0;
 		break;
@@ -606,8 +848,7 @@ detectCgroupMountPoint(void)
 
 	endmntent(fp);
 
-	if (!cgdir[0])
-		CGROUP_ERROR("can not find cgroup mount point");
+	return !!cgdir[0];
 }
 
 /* Return the name for the OS group implementation */
@@ -615,6 +856,39 @@ const char *
 ResGroupOps_Name(void)
 {
 	return "cgroup";
+}
+
+/*
+ * Probe the configuration for the OS group implementation.
+ *
+ * Return true if everything is OK, or false is some requirements are not
+ * satisfied.  Will not fail in either case.
+ */
+bool
+ResGroupOps_Probe(void)
+{
+	/*
+	 * We only have to do these checks and initialization once on each host,
+	 * so only let postmaster do the job.
+	 */
+	if (IsUnderPostmaster)
+		return true;
+
+	/*
+	 * Ignore the error even if cgroup mount point can not be successfully
+	 * probed, the error will be reported in Bless() later.
+	 */
+	if (!detectCgroupMountPoint())
+		return false;
+
+	/*
+	 * Probe for optional features like the 'cgroup' memory auditor,
+	 * do not raise any errors.
+	 */
+	if (!checkPermission(RESGROUP_ROOT_ID, false))
+		return false;
+
+	return true;
 }
 
 /* Check whether the OS group implementation is available and useable */
@@ -628,15 +902,19 @@ ResGroupOps_Bless(void)
 	if (IsUnderPostmaster)
 		return;
 
-	detectCgroupMountPoint();
-	checkPermission(RESGROUP_ROOT_ID, true);
+	/*
+	 * We should have already detected for cgroup mount point in Probe(),
+	 * it was not an error if the detection failed at that step.  But once
+	 * we call Bless() we know we want to make use of cgroup then we must
+	 * know the mount point, otherwise it's a critical error.
+	 */
+	if (!cgdir[0])
+		CGROUP_CONFIG_ERROR("can not find cgroup mount point");
 
 	/*
-	 * Put postmaster and all the children processes into the gpdb cgroup,
-	 * otherwise auxiliary processes might get too low priority when
-	 * gp_resource_group_cpu_priority is set to a large value
+	 * Check again, this time we will fail on unmet requirements.
 	 */
-	ResGroupOps_AssignGroup(RESGROUP_ROOT_ID, PostmasterPid);
+	checkPermission(RESGROUP_ROOT_ID, true);
 }
 
 /* Initialize the OS group */
@@ -666,6 +944,32 @@ ResGroupOps_Init(void)
 			   cfs_period_us * ncores * gp_resource_group_cpu_limit);
 	writeInt64(RESGROUP_ROOT_ID, NULL, comp, "cpu.shares",
 			   1024LL * gp_resource_group_cpu_priority);
+
+	if (gp_resource_group_enable_cgroup_cpuset)
+	{
+		/*
+		 * Get cpuset.mems and cpuset.cpus values from cgroup cpuset root path,
+		 * and set them to cpuset/gpdb/cpuset.mems and cpuset/gpdb/cpuset.cpus
+		 * to make sure that gpdb directory configuration is same as its
+		 * parent directory
+		 */
+		char buffer[MaxCpuSetLength];
+		readStr(RESGROUP_COMPROOT_ID, NULL, "cpuset", "cpuset.mems",
+				buffer, sizeof(buffer));
+		writeStr(RESGROUP_ROOT_ID, NULL, "cpuset", "cpuset.mems", buffer);
+		readStr(RESGROUP_COMPROOT_ID, NULL, "cpuset", "cpuset.cpus",
+				buffer, sizeof(buffer));
+		writeStr(RESGROUP_ROOT_ID, NULL, "cpuset", "cpuset.cpus", buffer);
+
+		createDefaultCpuSetGroup();
+	}
+
+	/*
+	 * Put postmaster and all the children processes into the gpdb cgroup,
+	 * otherwise auxiliary processes might get too low priority when
+	 * gp_resource_group_cpu_priority is set to a large value
+	 */
+	ResGroupOps_AssignGroup(RESGROUP_ROOT_ID, NULL, PostmasterPid);
 }
 
 /* Adjust GUCs for this OS group implementation */
@@ -690,7 +994,12 @@ ResGroupOps_CreateGroup(Oid group)
 {
 	int retry = 0;
 
-	if (!createDir(group, "cpu") || !createDir(group, "cpuacct"))
+	if (!createDir(group, "cpu")
+		|| !createDir(group, "cpuacct")
+		|| (gp_resource_group_enable_cgroup_cpuset &&
+			!createDir(group, "cpuset"))
+		|| (gp_resource_group_enable_cgroup_memory &&
+			!createDir(group, "memory")))
 	{
 		CGROUP_ERROR("can't create cgroup for resgroup '%d': %s",
 					 group, strerror(errno));
@@ -700,28 +1009,113 @@ ResGroupOps_CreateGroup(Oid group)
 	 * although the group dir is created the interface files may not be
 	 * created yet, so we check them repeatedly until everything is ready.
 	 */
-	while (++retry <= 10 && !checkPermission(group, false))
+	while (++retry <= MAX_RETRY && !checkPermission(group, false))
 		pg_usleep(1000);
 
-	if (retry > 10)
+	if (retry > MAX_RETRY)
 	{
 		/*
-		 * still not ready after 10 retries, might be a real error,
+		 * still not ready after MAX_RETRY retries, might be a real error,
 		 * raise the error.
 		 */
 		checkPermission(group, true);
 	}
+
+	if (gp_resource_group_enable_cgroup_cpuset)
+	{
+		/*
+		 * Initialize cpuset.mems and cpuset.cpus values as its parent directory
+		 */
+		char buffer[MaxCpuSetLength];
+
+		readStr(RESGROUP_ROOT_ID,
+				NULL,
+				"cpuset",
+				"cpuset.mems",
+				buffer,
+				sizeof(buffer));
+		writeStr(group, NULL, "cpuset", "cpuset.mems", buffer);
+
+		readStr(RESGROUP_ROOT_ID,
+				NULL,
+				"cpuset",
+				"cpuset.cpus",
+				buffer,
+				sizeof(buffer));
+		writeStr(group, NULL, "cpuset", "cpuset.cpus", buffer);
+	}
+}
+
+/*
+ * Create the OS group for default cpuset group.
+ * default cpuset group is a special group, only take effect in cpuset
+ */
+static void
+createDefaultCpuSetGroup(void)
+{
+	int retry = 0;
+
+	if (!createDir(DEFAULT_CPUSET_GROUP_ID, "cpuset"))
+	{
+		CGROUP_ERROR("can't create cpuset cgroup for resgroup '%d': %s",
+					 DEFAULT_CPUSET_GROUP_ID, strerror(errno));
+	}
+
+	/*
+	 * although the group dir is created the interface files may not be
+	 * created yet, so we check them repeatedly until everything is ready.
+	 */
+	while (++retry <= MAX_RETRY &&
+		   !checkCpuSetPermission(DEFAULT_CPUSET_GROUP_ID, false))
+		pg_usleep(1000);
+
+	if (retry > MAX_RETRY)
+	{
+		/*
+		 * still not ready after MAX_RETRY retries, might be a real error,
+		 * raise the error.
+		 */
+		checkCpuSetPermission(DEFAULT_CPUSET_GROUP_ID, true);
+	}
+
+	/*
+	 * Initialize cpuset.mems and cpuset.cpus in default group as its
+	 * parent directory
+	 */
+	char buffer[MaxCpuSetLength];
+
+	readStr(RESGROUP_ROOT_ID,
+			NULL,
+			"cpuset",
+			"cpuset.mems",
+			buffer,
+			sizeof(buffer));
+	writeStr(DEFAULT_CPUSET_GROUP_ID, NULL, "cpuset", "cpuset.mems", buffer);
+
+	readStr(RESGROUP_ROOT_ID,
+			NULL,
+			"cpuset",
+			"cpuset.cpus",
+			buffer,
+			sizeof(buffer));
+	writeStr(DEFAULT_CPUSET_GROUP_ID, NULL, "cpuset", "cpuset.cpus", buffer);
 }
 
 /*
  * Destroy the OS group for group.
  *
- * Fail if any process is running under it.
+ * One OS group can not be dropped if there are processes running under it,
+ * if migrate is true these processes will be moved out automatically.
  */
 void
-ResGroupOps_DestroyGroup(Oid group)
+ResGroupOps_DestroyGroup(Oid group, bool migrate)
 {
-	if (!removeDir(group, "cpu", true) || !removeDir(group, "cpuacct", true))
+	if (!removeDir(group, "cpu", "cpu.shares", migrate)
+		|| !removeDir(group, "cpuacct", NULL, migrate)
+		|| (gp_resource_group_enable_cgroup_cpuset &&
+			!removeDir(group, "cpuset", NULL, migrate))
+		|| (gp_resource_group_enable_cgroup_memory &&
+			!removeDir(group, "memory", "memory.limit_in_bytes", migrate)))
 	{
 		CGROUP_ERROR("can't remove cgroup for resgroup '%d': %s",
 			 group, strerror(errno));
@@ -736,15 +1130,47 @@ ResGroupOps_DestroyGroup(Oid group)
  * pid is the process id.
  */
 void
-ResGroupOps_AssignGroup(Oid group, int pid)
+ResGroupOps_AssignGroup(Oid group, ResGroupCaps *caps, int pid)
 {
-	if (IsUnderPostmaster && group == currentGroupIdInCGroup)
+	bool oldViaCpuset = oldCaps.cpuRateLimit == CPU_RATE_LIMIT_DISABLED;
+	bool curViaCpuset = caps ? caps->cpuRateLimit == CPU_RATE_LIMIT_DISABLED : false;
+
+	/* needn't write to file if the pid has already been written in.
+	 * Unless it has not been writtien or the group has changed or
+	 * cpu control mechanism has changed */
+	if (IsUnderPostmaster &&
+		group == currentGroupIdInCGroup &&
+		caps != NULL &&
+		oldViaCpuset == curViaCpuset
+		)
 		return;
 
 	writeInt64(group, NULL, "cpu", "cgroup.procs", pid);
 	writeInt64(group, NULL, "cpuacct", "cgroup.procs", pid);
 
+	if (gp_resource_group_enable_cgroup_cpuset)
+	{
+		if (caps == NULL || !curViaCpuset)
+		{
+			/* add pid to default group */
+			writeInt64(DEFAULT_CPUSET_GROUP_ID, NULL, "cpuset", "cgroup.procs", pid);
+		}
+		else
+		{
+			writeInt64(group, NULL, "cpuset", "cgroup.procs", pid);
+		}
+	}
+
+	/*
+	 * Do not assign the process to cgroup/memory for now.
+	 */
+
 	currentGroupIdInCGroup = group;
+	if (caps != NULL)
+	{
+		oldCaps.cpuRateLimit = caps->cpuRateLimit;
+		StrNCpy(oldCaps.cpuset, caps->cpuset, sizeof(oldCaps.cpuset));
+	}
 }
 
 /*
@@ -758,12 +1184,12 @@ ResGroupOps_AssignGroup(Oid group, int pid)
  * ResGroupOps_UnLockGroup() to unblock it.
  */
 int
-ResGroupOps_LockGroup(Oid group, bool block)
+ResGroupOps_LockGroup(Oid group, const char *comp, bool block)
 {
 	char path[MAXPGPATH];
 	size_t pathsize = sizeof(path);
 
-	buildPath(group, NULL, "cpu", "", path, pathsize);
+	buildPath(group, NULL, comp, "", path, pathsize);
 
 	return lockDir(path, block);
 }
@@ -797,6 +1223,84 @@ ResGroupOps_SetCpuRateLimit(Oid group, int cpu_rate_limit)
 }
 
 /*
+ * Set the memory limit for the OS group by rate.
+ *
+ * memory_limit should be within [0, 100].
+ */
+void
+ResGroupOps_SetMemoryLimit(Oid group, int memory_limit)
+{
+	int fd;
+	int32 memory_limit_in_chunks;
+
+	memory_limit_in_chunks = ResGroupGetVmemLimitChunks() * memory_limit / 100;
+	memory_limit_in_chunks *= ResGroupGetSegmentNum();
+
+	fd = ResGroupOps_LockGroup(group, "memory", true);
+	ResGroupOps_SetMemoryLimitByValue(group, memory_limit_in_chunks);
+	ResGroupOps_UnLockGroup(group, fd);
+}
+
+/*
+ * Set the memory limit for the OS group by value.
+ *
+ * memory_limit is the limit value in chunks
+ *
+ * If cgroup supports memory swap, we will write the same limit to
+ * memory.memsw.limit and memory.limit.
+ */
+void
+ResGroupOps_SetMemoryLimitByValue(Oid group, int32 memory_limit)
+{
+	const char *comp = "memory";
+	int64 memory_limit_in_bytes;
+
+	if (!gp_resource_group_enable_cgroup_memory)
+		return;
+
+	memory_limit_in_bytes = VmemTracker_ConvertVmemChunksToBytes(memory_limit);
+
+	/* Is swap interfaces enabled? */
+	if (!gp_resource_group_enable_cgroup_swap)
+	{
+		/* No, then we only need to setup the memory limit */
+		writeInt64(group, NULL, comp, "memory.limit_in_bytes",
+				memory_limit_in_bytes);
+	}
+	else
+	{
+		/* Yes, then we have to setup both the memory and mem+swap limits */
+
+		int64 memory_limit_in_bytes_old;
+
+		/*
+		 * Memory limit should always <= mem+swap limit, then the limits
+		 * must be set in a proper order depending on the relation between
+		 * new and old limits.
+		 */
+		memory_limit_in_bytes_old = readInt64(group, NULL,
+				comp, "memory.limit_in_bytes");
+
+		if (memory_limit_in_bytes > memory_limit_in_bytes_old)
+		{
+			/* When new value > old memory limit, write mem+swap limit first */
+			writeInt64(group, NULL, comp, "memory.memsw.limit_in_bytes",
+					memory_limit_in_bytes);
+			writeInt64(group, NULL, comp, "memory.limit_in_bytes",
+					memory_limit_in_bytes);
+		}
+		else if (memory_limit_in_bytes < memory_limit_in_bytes_old)
+		{
+			/* When new value < old memory limit,  write memory limit first */
+			writeInt64(group, NULL, comp, "memory.limit_in_bytes",
+					memory_limit_in_bytes);
+			writeInt64(group, NULL, comp, "memory.memsw.limit_in_bytes",
+					memory_limit_in_bytes);
+		}
+	}
+}
+
+/*
  * Get the cpu usage of the OS group, that is the total cpu time obtained
  * by this OS group, in nano seconds.
  */
@@ -806,6 +1310,52 @@ ResGroupOps_GetCpuUsage(Oid group)
 	const char *comp = "cpuacct";
 
 	return readInt64(group, NULL, comp, "cpuacct.usage");
+}
+
+/*
+ * Get the memory usage of the OS group
+ *
+ * memory usage is returned in chunks
+ */
+int32
+ResGroupOps_GetMemoryUsage(Oid group)
+{
+	const char *comp = "memory";
+	int64 memory_usage_in_bytes;
+	char *prop;
+
+	/* Report 0 if cgroup memory is not enabled */
+	if (!gp_resource_group_enable_cgroup_memory)
+		return 0;
+
+	prop = gp_resource_group_enable_cgroup_swap
+		? "memory.memsw.usage_in_bytes"
+		: "memory.usage_in_bytes";
+
+	memory_usage_in_bytes = readInt64(group, NULL, comp, prop);
+
+	return VmemTracker_ConvertVmemBytesToChunks(memory_usage_in_bytes);
+}
+
+/*
+ * Get the memory limit of the OS group
+ *
+ * memory limit is returned in chunks
+ */
+int32
+ResGroupOps_GetMemoryLimit(Oid group)
+{
+	const char *comp = "memory";
+	int64 memory_limit_in_bytes;
+
+	/* Report unlimited (max int32) if cgroup memory is not enabled */
+	if (!gp_resource_group_enable_cgroup_memory)
+		return (int32) ((1U << 31) - 1);
+
+	memory_limit_in_bytes = readInt64(group, NULL,
+			comp, "memory.limit_in_bytes");
+
+	return VmemTracker_ConvertVmemBytesToChunks(memory_limit_in_bytes);
 }
 
 /*
@@ -851,4 +1401,36 @@ ResGroupOps_GetTotalMemory(void)
 	 */
 	total = Min(outTotal, swap + ram); 
 	return total >> BITS_IN_MB;
+}
+
+/*
+ * Set the cpuset for the OS group.
+ * @param group: the destination group
+ * @param cpuset: the value to be set
+ * The syntax of CPUSET is a combination of the tuples, each tuple represents
+ * one core number or the core numbers interval, separated by comma.
+ * E.g. 0,1,2-3.
+ */
+void
+ResGroupOps_SetCpuSet(Oid group, const char *cpuset)
+{
+	if (!gp_resource_group_enable_cgroup_cpuset)
+		return ;
+	const char *comp = "cpuset";
+	writeStr(group, NULL, comp, "cpuset.cpus", cpuset);
+}
+
+/*
+ * Get the cpuset of the OS group.
+ * @param group: the destination group
+ * @param cpuset: the str to be set
+ * @param len: the upper limit of the str
+ */
+void
+ResGroupOps_GetCpuSet(Oid group, char *cpuset, int len)
+{
+	if (!gp_resource_group_enable_cgroup_cpuset)
+		return ;
+	const char *comp = "cpuset";
+	readStr(group, NULL, comp, "cpuset.cpus", cpuset, len);
 }

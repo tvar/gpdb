@@ -98,6 +98,7 @@
             <topicref href="guc-list.xml#gp_enable_sort_limit"/>
             <topicref href="guc-list.xml#gp_external_enable_exec"/>
             <topicref href="guc-list.xml#gp_external_max_segs"/>
+            <topicref href="guc-list.xml#gp_external_enable_filter_pushdown"/>
             <topicref href="guc-list.xml#gp_filerep_tcp_keepalives_count"/>
             <topicref href="guc-list.xml#gp_filerep_tcp_keepalives_idle"/>
             <topicref href="guc-list.xml#gp_filerep_tcp_keepalives_interval"/>
@@ -111,6 +112,7 @@
             <topicref href="guc-list.xml#gp_hadoop_target_version"/>
             <topicref href="guc-list.xml#gp_hashjoin_tuples_per_bucket"/>
             <topicref href="guc-list.xml#gp_idf_deduplicate"/>
+            <topicref href="guc-list.xml#gp_ignore_error_table"/>
             <topicref href="guc-list.xml#topic_lvm_ttc_3p"/>
             <topicref href="guc-list.xml#gp_interconnect_debug_retry_interval"/>
             <topicref href="guc-list.xml#gp_interconnect_fc_method"/>
@@ -129,6 +131,7 @@
             <topicref href="guc-list.xml#gp_max_local_distributed_cache"/>
             <topicref href="guc-list.xml#gp_max_packet_size"/>
             <topicref href="guc-list.xml#gp_max_plan_size"/>
+            <topicref href="guc-list.xml#gp_max_slices"/>
             <topicref href="guc-list.xml#gp_max_tablespaces"/>
             <topicref href="guc-list.xml#gp_motion_cost_per_row"/>
             <topicref href="guc-list.xml#gp_num_contents_in_cluster"/>
@@ -217,6 +220,7 @@
             <topicref href="guc-list.xml#optimizer_analyze_root_partition"/>
             <topicref href="guc-list.xml#optimizer_control"/>
             <topicref href="guc-list.xml#optimizer_cte_inlining_bound"/>
+            <topicref href="guc-list.xml#optimizer_enable_associativity"/>
             <topicref href="guc-list.xml#optimizer_enable_master_only_queries"/>
             <topicref href="guc-list.xml#optimizer_force_multistage_agg"/>
             <topicref href="guc-list.xml#optimizer_force_three_stage_scalar_dqa"/>
@@ -284,6 +288,7 @@
             <topicref href="guc-list.xml#vacuum_cost_page_miss"/>
             <topicref href="guc-list.xml#vacuum_freeze_min_age"/>
             <topicref href="guc-list.xml#validate_previous_free_tid"/>
+            <topicref href="guc-list.xml#verify_gpfdists_cert"/>
             <topicref href="guc-list.xml#vmem_process_interrupt"/>
             <topicref href="guc-list.xml#wal_receiver_status_interval"/>
             <topicref href="guc-list.xml#writable_external_table_bufsize"/>

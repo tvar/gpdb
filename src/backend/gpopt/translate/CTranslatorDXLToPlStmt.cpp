@@ -1157,7 +1157,7 @@ CTranslatorDXLToPlStmt::FSetIndexVarAttno
 		const IMDRelation *pmdrel = pctxtidxvarattno->m_pmdrel;
 		const IMDIndex *pmdindex = pctxtidxvarattno->m_pmdindex;
 
-		ULONG ulIndexColPos = ULONG_MAX;
+		ULONG ulIndexColPos = gpos::ulong_max;
 		const ULONG ulArity = pmdrel->UlColumns();
 		for (ULONG ulColPos = 0; ulColPos < ulArity; ulColPos++)
 		{
@@ -1169,7 +1169,7 @@ CTranslatorDXLToPlStmt::FSetIndexVarAttno
 			}
 		}
 
-		if (ULONG_MAX > ulIndexColPos)
+		if (gpos::ulong_max > ulIndexColPos)
 		{
 			((Var *)pnode)->varattno =  1 + pmdindex->UlPosInKey(ulIndexColPos);
 		}
@@ -2637,7 +2637,7 @@ CTranslatorDXLToPlStmt::PplanResultHashFilters
 			CDXLNode *pdxlnHashExpr = (*pdxlnHashExprList)[ul];
 			CDXLNode *pdxlnExpr = (*pdxlnHashExpr)[0];
 			
-			INT iResno = INT_MAX;
+			INT iResno = gpos::int_max;
 			if (EdxlopScalarIdent == pdxlnExpr->Pdxlop()->Edxlop())
 			{
 				ULONG ulColId = CDXLScalarIdent::PdxlopConvert(pdxlnExpr->Pdxlop())->Pdxlcr()->UlID();
@@ -2674,7 +2674,7 @@ CTranslatorDXLToPlStmt::PplanResultHashFilters
 
 				iResno = pte->resno;
 			}
-			GPOS_ASSERT(INT_MAX != iResno);
+			GPOS_ASSERT(gpos::int_max != iResno);
 			
 			presult->hashList = gpdb::PlAppendInt(presult->hashList, iResno);
 		}
@@ -3329,7 +3329,6 @@ CTranslatorDXLToPlStmt::PplanPartitionSelector
 
 	CDXLNode *pdxlnChild = NULL;
 	DrgPdxltrctx *pdrgpdxltrctx = GPOS_NEW(m_pmp) DrgPdxltrctx(m_pmp);
-	DrgPdxltrctx *pdrgpdxltrctxWithSiblings = GPOS_NEW(m_pmp) DrgPdxltrctx(m_pmp);
 
 	CDXLTranslateContext dxltrctxChild(m_pmp, false, pdxltrctxOut->PhmColParam());
 
@@ -3347,20 +3346,12 @@ CTranslatorDXLToPlStmt::PplanPartitionSelector
 	}
 
 	pdrgpdxltrctx->Append(&dxltrctxChild);
-	pdrgpdxltrctx->Append(pdxltrctxOut);
-
-	pdrgpdxltrctxWithSiblings->AppendArray(pdrgpdxltrctx);
-	if (NULL != pdrgpdxltrctxPrevSiblings)
-	{
-		pdrgpdxltrctxWithSiblings->AppendArray(pdrgpdxltrctxPrevSiblings);
-	}
 
 	CDXLNode *pdxlnPrL = (*pdxlnPartitionSelector)[EdxlpsIndexProjList];
 	CDXLNode *pdxlnEqFilters = (*pdxlnPartitionSelector)[EdxlpsIndexEqFilters];
 	CDXLNode *pdxlnFilters = (*pdxlnPartitionSelector)[EdxlpsIndexFilters];
 	CDXLNode *pdxlnResidualFilter = (*pdxlnPartitionSelector)[EdxlpsIndexResidualFilter];
 	CDXLNode *pdxlnPropExpr = (*pdxlnPartitionSelector)[EdxlpsIndexPropExpr];
-	CDXLNode *pdxlnPrintableFilter = (*pdxlnPartitionSelector)[EdxlpsIndexPrintableFilter];
 
 	// translate proj list
 	pplan->targetlist = PlTargetListFromProjList(pdxlnPrL, NULL /*pdxltrctxbt*/, pdrgpdxltrctx, pdxltrctxOut);
@@ -3373,7 +3364,7 @@ CTranslatorDXLToPlStmt::PplanPartitionSelector
 	ppartsel->levelExpressions = PlFilterList(pdxlnFilters, NULL /*pdxltrctxbt*/, pdrgpdxltrctx, pdxltrctxOut);
 
 	//translate residual filter
-	CMappingColIdVarPlStmt mapcidvarplstmt = CMappingColIdVarPlStmt(m_pmp, NULL /*pdxltrctxbt*/, pdrgpdxltrctxWithSiblings, pdxltrctxOut, m_pctxdxltoplstmt);
+	CMappingColIdVarPlStmt mapcidvarplstmt = CMappingColIdVarPlStmt(m_pmp, NULL /*pdxltrctxbt*/, pdrgpdxltrctx, pdxltrctxOut, m_pctxdxltoplstmt);
 	if (!m_pdxlsctranslator->FConstTrue(pdxlnResidualFilter, m_pmda))
 	{
 		ppartsel->residualPredicate = (Node *) m_pdxlsctranslator->PexprFromDXLNodeScalar(pdxlnResidualFilter, &mapcidvarplstmt);
@@ -3385,11 +3376,7 @@ CTranslatorDXLToPlStmt::PplanPartitionSelector
 		ppartsel->propagationExpression = (Node *) m_pdxlsctranslator->PexprFromDXLNodeScalar(pdxlnPropExpr, &mapcidvarplstmt);
 	}
 
-	//translate printable filter
-	if (!m_pdxlsctranslator->FConstTrue(pdxlnPrintableFilter, m_pmda))
-	{
-		ppartsel->printablePredicate = (Node *) m_pdxlsctranslator->PexprFromDXLNodeScalar(pdxlnPrintableFilter, &mapcidvarplstmt);
-	}
+	// no need to translate printable filter - since it is not needed by the executor
 
 	ppartsel->staticPartOids = NIL;
 	ppartsel->staticScanIds = NIL;
@@ -3416,7 +3403,6 @@ CTranslatorDXLToPlStmt::PplanPartitionSelector
 
 	// cleanup
 	pdrgpdxltrctx->Release();
-	pdrgpdxltrctxWithSiblings->Release();
 
 	return (Plan *) ppartsel;
 }
@@ -3542,7 +3528,7 @@ CTranslatorDXLToPlStmt::PappendFromDXLAppend
 							idxVarno,
 							attno,
 							CMDIdGPDB::PmdidConvert(pdxlopScIdent->PmdidType())->OidObjectId(),
-							-1,	// vartypmod
+							pdxlopScIdent->ITypeModifier(),
 							0	// varlevelsup
 							);
 
@@ -3748,7 +3734,7 @@ CTranslatorDXLToPlStmt::PshscanFromDXLCTEProducer
 			GPOS_ASSERT(IsA(pexpr, Var));
 
 			Var *pvar = (Var *) pexpr;
-			Var *pvarNew = gpdb::PvarMakeVar(OUTER, pvar->varattno, pvar->vartype, -1 /* vartypmod */,	0 /* varlevelsup */);
+			Var *pvarNew = gpdb::PvarMakeVar(OUTER, pvar->varattno, pvar->vartype, pvar->vartypmod,	0 /* varlevelsup */);
 			pvarNew->varnoold = pvar->varnoold;
 			pvarNew->varoattno = pvar->varoattno;
 
@@ -3939,7 +3925,7 @@ CTranslatorDXLToPlStmt::PshscanFromDXLCTEConsumer
 		CDXLScalarIdent *pdxlopScIdent = CDXLScalarIdent::PdxlopConvert(pdxlnScIdent->Pdxlop());
 		OID oidType = CMDIdGPDB::PmdidConvert(pdxlopScIdent->PmdidType())->OidObjectId();
 
-		Var *pvar = gpdb::PvarMakeVar(OUTER, (AttrNumber) (ul + 1), oidType, -1 /* vartypmod */,  0	/* varlevelsup */);
+		Var *pvar = gpdb::PvarMakeVar(OUTER, (AttrNumber) (ul + 1), oidType, pdxlopScIdent->ITypeModifier(),  0	/* varlevelsup */);
 
 		CHAR *szResname = CTranslatorUtils::SzFromWsz(pdxlopPrE->PmdnameAlias()->Pstr()->Wsz());
 		TargetEntry *pte = gpdb::PteMakeTargetEntry((Expr *) pvar, (AttrNumber) (ul + 1), szResname, false /* resjunk */);
@@ -5039,6 +5025,7 @@ CTranslatorDXLToPlStmt::PlTargetListForHashNode
 
 		// find column type
 		OID oidType = gpdb::OidExprType((Node*) pteChild->expr);
+		INT iTypeModifier = gpdb::IExprTypeMod((Node *) pteChild->expr);
 
 		// find the original varno and attno for this column
 		Index idxVarnoold = 0;
@@ -5062,7 +5049,7 @@ CTranslatorDXLToPlStmt::PlTargetListForHashNode
 					OUTER,
 					pteChild->resno,
 					oidType,
-					-1,	// vartypmod
+					iTypeModifier,
 					0	// varlevelsup
 					);
 
@@ -5408,12 +5395,13 @@ CTranslatorDXLToPlStmt::UlAddTargetEntryForColId
 	// TODO: Oct 29, 2012; see if entry already exists in the target list
 	
 	OID oidExpr = gpdb::OidExprType((Node*) pte->expr);
+	INT iTypeModifier = gpdb::IExprTypeMod((Node *) pte->expr);
 	Var *pvar = gpdb::PvarMakeVar
 						(
 						OUTER,
 						pte->resno,
 						oidExpr,
-						-1,	// vartypmod
+						iTypeModifier,
 						0	// varlevelsup
 						);
 	ULONG ulResNo = gpdb::UlListLength(*pplTargetList) + 1;

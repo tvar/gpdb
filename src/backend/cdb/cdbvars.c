@@ -78,12 +78,16 @@ bool		Debug_resource_group;	/* Shall we log the resource group? */
 
 bool		gp_backup_directIO = false; /* disable\enable direct I/O dump */
 
+bool		Debug_burn_xids; /* Burn xids faster to test xid wraparound */
+
 int			gp_backup_directIO_read_chunk_mb = 20;		/* size of readChunk
 														 * buffer for directIO
 														 * dump */
 
 bool		gp_external_enable_exec = true;		/* allow ext tables with
 												 * EXECUTE */
+
+bool		verify_gpfdists_cert; /* verifies gpfdist's certificate */
 
 int			gp_external_max_segs;		/* max segdbs per gpfdist/gpfdists URI */
 
@@ -1236,7 +1240,14 @@ gpvars_assign_gp_resource_manager_policy(const char *newval, bool doit, GucSourc
 {
 	ResourceManagerPolicy newtype = RESOURCE_MANAGER_POLICY_QUEUE;
 
-	if (newval == NULL || newval[0] == 0 )
+	/*
+	 * Probe resgroup configurations even not in resgroup mode,
+	 * variables like gp_resource_group_enable_cgroup_memory need to
+	 * be properly set in all modes.
+	 */
+	ResGroupOps_Probe();
+
+	if (newval == NULL || newval[0] == 0)
 		newtype = RESOURCE_MANAGER_POLICY_QUEUE;
 	else if (!pg_strcasecmp("queue", newval))
 		newtype = RESOURCE_MANAGER_POLICY_QUEUE;

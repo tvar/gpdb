@@ -1,3 +1,9 @@
+-- This query must be the first one in this case.
+-- SHOW command will be bypassed in resgroup, when it's the first command
+-- in a connection it needs special handling to show memory_spill_ratio
+-- correctly.  Verify that it shows the correct value 10 instead of default 20.
+SHOW memory_spill_ratio;
+
 --start_ignore
 DROP ROLE role1_spill_test;
 DROP ROLE role2_spill_test;
@@ -30,7 +36,7 @@ SHOW MEMORY_SPILL_RATIO;
 SELECT 1;
 
 -- negative set to session level
-SET MEMORY_SPILL_RATIO TO 101;
+SET MEMORY_SPILL_RATIO TO -1;
 SHOW MEMORY_SPILL_RATIO;
 SELECT 1;
 
