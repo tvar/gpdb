@@ -17,24 +17,23 @@
                                 'filerep_end_to_end_full_primary',
                                 'filerep_end_to_end_incr_primary'] %}
 {% set MM_1_suites = ['gprecoverseg',
-                      'gpcheckcat'] %}
+                      'gpcheckcat',
+                      'gpinitstandby',
+                      'gpactivatestandby'] %}
 {% set MM_2_suites = ['analyzedb',
                       'gpperfmon',
-                      'gpinitsystem',
-                      'gpinitstandby'] %}
-{% set MM_gpexpand_suites = ['gpexpand_1',
-                             'gpexpand_2'] %}
+                      'gpinitsystem'] %}
 {% set aa_Test_suites = ['Planner_centos6',
                          'Orca_centos6',
                          'Planner_centos7',
                          'Orca_centos7',
                         ] %}
 ## ======================================================================
-##   __ _ _ __ ___  _   _ _ __  ___ 
+##   __ _ _ __ ___  _   _ _ __  ___
 ##  / _` | '__/ _ \| | | | '_ \/ __|
 ## | (_| | | | (_) | |_| | |_) \__ \
 ##  \__, |_|  \___/ \__,_| .__/|___/
-##  |___/                |_|        
+##  |___/                |_|
 ## ======================================================================
 
 groups:
@@ -56,15 +55,17 @@ groups:
   ## --------------------------------------------------------------------
   - gate_icw_start
   - icw_planner_centos6
+  - icw_planner_ictcp_centos6
   - icw_gporca_centos6
-  - icw_gporca_centos7
   - icw_planner_centos7
+  - icw_gporca_centos7
+  - icw_planner_oracle7
+  - icw_gporca_oracle7
   - icw_gporca_sles11
   - icw_planner_ubuntu16
   - icw_gporca_conan_ubuntu16
   - icw_extensions_gpcloud
   - test_gpdb_debian_package
-  - icw_planner_ictcp_centos6
   - gate_icw_end
   - QP_memory-accounting
   - QP_optimizer-functional
@@ -93,12 +94,13 @@ groups:
   ## --------------------------------------------------------------------
   - gate_mm_start
 {% for test_name in MM_1_suites +
-                    MM_2_suites +
-                    MM_gpexpand_suites %}
+                    MM_2_suites %}
   - MM_[[ test_name ]]
 {% endfor %}
   - MM_gppkg
   - MM_gpcheck
+  - MM_gpexpand
+  - MM_gpaddmirrors
   - MM_pt-rebuild
   - MU_check_centos
   - gate_mm_end
@@ -122,7 +124,8 @@ groups:
   ## --------------------------------------------------------------------
   - gate_ud_start
   - regression_tests_pxf
-  - regression_tests_gphdfs_centos
+  - regression_tests_gphdfs_hadoop_centos
+  - regression_tests_gphdfs_mapr_centos
   - gate_ud_end
 {% endif %}
 {% if "AA" in test_sections %}
@@ -135,7 +138,7 @@ groups:
   - Postgis_Test_[[ test_name ]]
 {% endfor %}
   - gate_advanced_analytics_end
-  
+
 {% endif %}
 {% if "FileRep" in test_sections %}
   ## --------------------------------------------------------------------
@@ -179,12 +182,14 @@ groups:
   - gate_icw_start
   - icw_planner_centos6
   - icw_gporca_centos6
-  - icw_gporca_centos7
+  - icw_planner_ictcp_centos6
   - icw_planner_centos7
+  - icw_gporca_centos7
+  - icw_planner_oracle7
+  - icw_gporca_oracle7
   - icw_gporca_sles11
   - icw_planner_ubuntu16
   - icw_gporca_conan_ubuntu16
-  - icw_planner_ictcp_centos6
   - icw_extensions_gpcloud
   - test_gpdb_debian_package
   - QP_memory-accounting
@@ -227,12 +232,12 @@ groups:
   jobs:
   - gate_mm_start
 {% for test_name in MM_1_suites +
-                    MM_2_suites +
-                    MM_gpexpand_suites %}
+                    MM_2_suites %}
   - MM_[[ test_name ]]
 {% endfor %}
   - MM_gppkg
   - MM_gpcheck
+  - MM_gpexpand
   - MM_pt-rebuild
   - MU_check_centos
   - gate_mm_end
@@ -279,7 +284,8 @@ groups:
   jobs:
   - gate_ud_start
   - regression_tests_pxf
-  - regression_tests_gphdfs_centos
+  - regression_tests_gphdfs_hadoop_centos
+  - regression_tests_gphdfs_mapr_centos
   - gate_ud_end
 
 {% endif %}
@@ -296,12 +302,12 @@ groups:
 
 {% endif %}
 ## ======================================================================
-##                                           _                         
-##  _ __ ___  ___  ___  _   _ _ __ ___ ___  | |_ _   _ _ __   ___  ___ 
+##                                           _
+##  _ __ ___  ___  ___  _   _ _ __ ___ ___  | |_ _   _ _ __   ___  ___
 ## | '__/ _ \/ __|/ _ \| | | | '__/ __/ _ \ | __| | | | '_ \ / _ \/ __|
 ## | | |  __/\__ \ (_) | |_| | | | (_|  __/ | |_| |_| | |_) |  __/\__ \
 ## |_|  \___||___/\___/ \__,_|_|  \___\___|  \__|\__, | .__/ \___||___/
-##                                               |___/|_|              
+##                                               |___/|_|
 ## ======================================================================
 
 resource_types:
@@ -311,7 +317,7 @@ resource_types:
     repository: ljfranklin/terraform-resource
 
 ## ======================================================================
-##  _ __ ___  ___  ___  _   _ _ __ ___ ___  ___ 
+##  _ __ ___  ___  ___  _   _ _ __ ___ ___  ___
 ## | '__/ _ \/ __|/ _ \| | | | '__/ __/ _ \/ __|
 ## | | |  __/\__ \ (_) | |_| | | | (_|  __/\__ \
 ## |_|  \___||___/\___/ \__,_|_|  \___\___||___/
@@ -322,6 +328,7 @@ resources:
       "DPM"     in test_sections or
       "FileRep" in test_sections or
       "MPP"     in test_sections or
+      "UD"      in test_sections or
       "MM"      in test_sections %}
 - name: ccp_src
   type: git
@@ -371,15 +378,15 @@ resources:
   type: terraform
   source:
     env:
-      AWS_ACCESS_KEY_ID: {{gpdb4-tf-machine-access-key-id}}
-      AWS_SECRET_ACCESS_KEY: {{gpdb4-tf-machine-secret-access-key}}
+      AWS_ACCESS_KEY_ID: {{tf-machine-access-key-id}}
+      AWS_SECRET_ACCESS_KEY: {{tf-machine-secret-access-key}}
     storage:
-      access_key_id: {{gpdb4-tf-machine-access-key-id}}
-      secret_access_key: {{gpdb4-tf-machine-secret-access-key}}
+      access_key_id: {{tf-machine-access-key-id}}
+      secret_access_key: {{tf-machine-secret-access-key}}
       region_name: {{aws-region}}
       # This is not parameterized, on purpose. All tfstates will go to this spot,
       # and different teams will place there clusters' tfstate files under different paths
-      bucket: pivotal-pa-toolsmiths-pipeline-dynamic-terraform
+      bucket: gpdb5-pipeline-dynamic-terraform
       bucket_path: clusters-aws/
 
 {% endif %}
@@ -417,18 +424,17 @@ resources:
     uri: {{gpaddon-git-remote}}
 
 {% if "UD" in test_sections %}
-- name: pxf_infra_src
+- name: pxf_src
   type: git
   source:
-    branch: {{pxf_infra-git-branch}}
-    private_key: {{pxf_infra-git-key}}
-    uri: {{pxf_infra-git-remote}}
+    branch: {{pxf-git-branch}}
+    uri: {{pxf-git-remote}}
 
 - name: centos6-gpdb-dev-pxf-hdp
   type: docker-image
   source:
-    repository: pivotaldata/gpdb-dev
-    tag: centos6-pxf-hdp-server
+    repository: pivotaldata/gpdb-pxf-dev
+    tag: centos6-hdp-server
 
 {% endif %}
 - name: debian_release
@@ -448,6 +454,12 @@ resources:
   source:
     repository: pivotaldata/centos-gpdb-dev
     tag: 7-gcc6.2-llvm3.7
+
+- name: oracle-gpdb-test-7
+  type: docker-image
+  source:
+    repository: pivotaldata/oracle7-test
+    tag: gpdb5-latest
 
 - name: ubuntu-gpdb-dev-16
   type: docker-image
@@ -788,8 +800,8 @@ resources:
     stop: {{reduced-frequency-trigger-stop}}
 
 ## ======================================================================
-##                   _                    
-##   __ _ _ __   ___| |__   ___  _ __ ___ 
+##                   _
+##   __ _ _ __   ___| |__   ___  _ __ ___
 ##  / _` | '_ \ / __| '_ \ / _ \| '__/ __|
 ## | (_| | | | | (__| | | | (_) | |  \__ \
 ##  \__,_|_| |_|\___|_| |_|\___/|_|  |___/
@@ -869,7 +881,7 @@ dpm_ccp_destroy_anchor: &dpm_ccp_destroy
   params:
     action: destroy
     env_name_file: terraform_for_dpm/name
-    terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+    terraform_source: ccp_src/aws/
     vars:
       aws_instance-node-instance_type: t2.micro #t2.micro is ignored in destroy, but aws_instance-node-instance_type is required.
   get_params:
@@ -883,12 +895,12 @@ ccp_gen_cluster_default_params_anchor: &ccp_gen_cluster_default_params
   BUCKET_NAME: {{tf-bucket-name}}
   CLOUD_PROVIDER: google
 
-ccp_gpdb4_gen_cluster_default_params_anchor: &ccp_gpdb4_gen_cluster_default_params
-  AWS_ACCESS_KEY_ID: {{gpdb4-tf-machine-access-key-id}}
-  AWS_SECRET_ACCESS_KEY: {{gpdb4-tf-machine-secret-access-key}}
+ccp_aws_gen_cluster_default_params_anchor: &ccp_aws_gen_cluster_default_params
+  AWS_ACCESS_KEY_ID: {{tf-machine-access-key-id}}
+  AWS_SECRET_ACCESS_KEY: {{tf-machine-secret-access-key}}
   AWS_DEFAULT_REGION: {{aws-region}}
   BUCKET_PATH: clusters-aws/
-  BUCKET_NAME: pivotal-pa-toolsmiths-pipeline-dynamic-terraform
+  BUCKET_NAME: {{tf-bucket-name}}
   CLOUD_PROVIDER: aws
 
 set_failed_anchor: &set_failed
@@ -1001,23 +1013,23 @@ cs_ccp_run_tests_params_anchor: &cs_ccp_run_tests_params
     <<: *ccp_destroy
 
 ## ======================================================================
-##    _       _         
-##   (_) ___ | |__  ___ 
+##    _       _
+##   (_) ___ | |__  ___
 ##   | |/ _ \| '_ \/ __|
 ##   | | (_) | |_) \__ \
 ##  _/ |\___/|_.__/|___/
-## |__/                 
+## |__/
 ## ======================================================================
 
 jobs:
 
 ## ======================================================================
-##   ____                      _ _      
-##  / ___|___  _ __ ___  _ __ (_) | ___ 
+##   ____                      _ _
+##  / ___|___  _ __ ___  _ __ (_) | ___
 ## | |   / _ \| '_ ` _ \| '_ \| | |/ _ \
 ## | |__| (_) | | | | | | |_) | | |  __/
 ##  \____\___/|_| |_| |_| .__/|_|_|\___|
-##                      |_|             
+##                      |_|
 ## ======================================================================
 
 - name: gate_compile_start
@@ -1047,14 +1059,22 @@ jobs:
       passed: [gate_compile_start]
     - get: centos-gpdb-dev-6
       passed: [gate_compile_start]
-  - task: compile_gpdb
-    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+  - task: sync_tools
+    file: gpdb_src/concourse/tasks/sync_tools.yml
     image: centos-gpdb-dev-6
     params:
       IVYREPO_HOST: {{ivyrepo_host}}
       IVYREPO_REALM: {{ivyrepo_realm}}
       IVYREPO_USER: {{ivyrepo_user}}
       IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 6
+      TASK_OS: centos
+      TASK_OS_VERSION: 6
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    image: centos-gpdb-dev-6
+    params:
       CONFIGURE_FLAGS: {{configure_flags}}
       TARGET_OS: centos
       TARGET_OS_VERSION: 6
@@ -1082,14 +1102,22 @@ jobs:
       passed: [gate_compile_start]
     - get: centos-gpdb-dev-7
       passed: [gate_compile_start]
-  - task: compile_gpdb
+  - task: sync_tools
+    file: gpdb_src/concourse/tasks/sync_tools.yml
     image: centos-gpdb-dev-7
-    file: gpdb_src/concourse/tasks/compile_gpdb.yml
     params:
       IVYREPO_HOST: {{ivyrepo_host}}
       IVYREPO_REALM: {{ivyrepo_realm}}
       IVYREPO_USER: {{ivyrepo_user}}
       IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 7
+      TASK_OS: centos
+      TASK_OS_VERSION: 7
+  - task: compile_gpdb
+    image: centos-gpdb-dev-7
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    params:
       CONFIGURE_FLAGS: {{configure_flags}}
       TARGET_OS: centos
       TARGET_OS_VERSION: 7
@@ -1115,13 +1143,23 @@ jobs:
       trigger: ((gpdb_src-trigger-flag))
     - get: gpaddon_src
       passed: [gate_compile_start]
-  - task: compile_gpdb
-    file: gpdb_src/concourse/tasks/compile_gpdb_sles11.yml
+    - get: centos-gpdb-dev-7
+      passed: [gate_compile_start]
+  - task: sync_tools
+    file: gpdb_src/concourse/tasks/sync_tools.yml
+    image: centos-gpdb-dev-7
     params:
       IVYREPO_HOST: {{ivyrepo_host}}
       IVYREPO_REALM: {{ivyrepo_realm}}
       IVYREPO_USER: {{ivyrepo_user}}
       IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: sles
+      TARGET_OS_VERSION:
+      TASK_OS: centos
+      TASK_OS_VERSION: 7
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb_sles11.yml
+    params:
       CONFIGURE_FLAGS: {{configure_flags}}
       TARGET_OS: sles
       TARGET_OS_VERSION:
@@ -1233,18 +1271,30 @@ jobs:
     - get: centos-mingw
       tags: ["wix"]
       passed: [gate_compile_start]
+    - get: centos-gpdb-dev-7
+      tags: ["wix"]
+      passed: [gate_compile_start]
+  - task: sync_tools
+    file: gpdb_src/concourse/tasks/sync_tools.yml
+    image: centos-gpdb-dev-7
+    params:
+      IVYREPO_HOST: {{ivyrepo_host}}
+      IVYREPO_REALM: {{ivyrepo_realm}}
+      IVYREPO_USER: {{ivyrepo_user}}
+      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: win32
+      TARGET_OS_VERSION:
+      TASK_OS: centos
+      TASK_OS_VERSION: 7
   - task: compile_gpdb
     tags: ["wix"]
     image: centos-mingw
     file: gpdb_src/concourse/tasks/compile_gpdb.yml
     params:
+      CONFIGURE_FLAGS: {{configure_flags}}
       TARGET_OS: win32
       TARGET_OS_VERSION:
-      BLD_TARGETS: clients loaders
-      IVYREPO_HOST: {{ivyrepo_host}}
-      IVYREPO_REALM: {{ivyrepo_realm}}
-      IVYREPO_USER: {{ivyrepo_user}}
-      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      BLD_TARGETS: "clients loaders"
   - aggregate:
     - put: bin_gpdb_windows_clients
       tags: ["wix"]
@@ -1372,9 +1422,9 @@ jobs:
 ## ======================================================================
 ##  ___ ______        __
 ## |_ _/ ___\ \      / /
-##  | | |    \ \ /\ / / 
-##  | | |___  \ V  V /  
-## |___\____|  \_/\_/   
+##  | | |    \ \ /\ / /
+##  | | |___  \ V  V /
+## |___\____|  \_/\_/
 ## ======================================================================
 
 - name: gate_icw_start
@@ -1425,6 +1475,24 @@ jobs:
       BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
       TEST_OS: centos
       CONFIGURE_FLAGS: {{configure_flags}}
+
+- name: icw_planner_ictcp_centos6
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed: [gate_icw_start]
+    - get: bin_gpdb
+      resource: bin_gpdb_centos6
+      passed: [gate_icw_start]
+      trigger: [[ test_trigger ]]
+    - get: centos-gpdb-dev-6
+  - task: ic_gpdb
+    file: gpdb_src/concourse/tasks/ic_gpdb.yml
+    image: centos-gpdb-dev-6
+    params:
+      MAKE_TEST_COMMAND: PGOPTIONS='-c gp_interconnect_type=tcp -c optimizer=off' installcheck-world
+      BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
+      TEST_OS: centos
 
 - name: icw_gporca_centos6
   plan:
@@ -1479,6 +1547,44 @@ jobs:
     image: centos-gpdb-dev-7
     params:
       MAKE_TEST_COMMAND: PGOPTIONS='-c optimizer=off' installcheck-world
+      BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
+      TEST_OS: centos
+      CONFIGURE_FLAGS: {{configure_flags}}
+
+- name: icw_planner_oracle7
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed: [gate_icw_start]
+    - get: bin_gpdb
+      resource: bin_gpdb_centos7
+      passed: [gate_icw_start]
+      trigger: [[ test_trigger ]]
+    - get: oracle-gpdb-test-7
+  - task: ic_gpdb
+    file: gpdb_src/concourse/tasks/ic_gpdb.yml
+    image: oracle-gpdb-test-7
+    params:
+      MAKE_TEST_COMMAND: PGOPTIONS='-c optimizer=off' installcheck-world
+      BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
+      TEST_OS: centos
+      CONFIGURE_FLAGS: {{configure_flags}}
+
+- name: icw_gporca_oracle7
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed: [gate_icw_start]
+    - get: bin_gpdb
+      resource: bin_gpdb_centos7
+      passed: [gate_icw_start]
+      trigger: [[ test_trigger ]]
+    - get: oracle-gpdb-test-7
+  - task: ic_gpdb
+    file: gpdb_src/concourse/tasks/ic_gpdb.yml
+    image: oracle-gpdb-test-7
+    params:
+      MAKE_TEST_COMMAND: PGOPTIONS='-c optimizer=on' installcheck-world
       BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
       TEST_OS: centos
       CONFIGURE_FLAGS: {{configure_flags}}
@@ -1550,24 +1656,6 @@ jobs:
     image: ubuntu-gpdb-debian-dev-16
     params:
       DEBIAN_PACKAGE: {{deb_package_ubuntu16_versioned_file}}
-
-- name: icw_planner_ictcp_centos6
-  plan:
-  - aggregate:
-    - get: gpdb_src
-      passed: [gate_icw_start]
-    - get: bin_gpdb
-      resource: bin_gpdb_centos6
-      passed: [gate_icw_start]
-      trigger: [[ test_trigger ]]
-    - get: centos-gpdb-dev-6
-  - task: ic_gpdb
-    file: gpdb_src/concourse/tasks/ic_gpdb.yml
-    image: centos-gpdb-dev-6
-    params:
-      MAKE_TEST_COMMAND: PGOPTIONS='-c gp_interconnect_type=tcp -c optimizer=off' installcheck-world
-      BLDWRAP_POSTGRES_CONF_ADDONS: "fsync=off"
-      TEST_OS: centos
 
 - name: icw_extensions_gpcloud
   plan:
@@ -1672,11 +1760,14 @@ jobs:
       passed:
       - icw_planner_centos6
       - icw_gporca_centos6
+      - icw_planner_ictcp_centos6
       - icw_gporca_centos7
+      - icw_planner_centos7
+      - icw_gporca_oracle7
+      - icw_planner_oracle7
       - icw_gporca_sles11
       - icw_planner_ubuntu16
       - icw_gporca_conan_ubuntu16
-      - icw_planner_ictcp_centos6
       - icw_extensions_gpcloud
       - QP_memory-accounting
       - QP_optimizer-functional
@@ -1693,6 +1784,8 @@ jobs:
       passed:
       - icw_planner_centos7
       - icw_gporca_centos7
+      - icw_gporca_oracle7
+      - icw_planner_oracle7
     - get: bin_gpdb_sles11
       passed:
       - icw_gporca_sles11
@@ -1712,11 +1805,11 @@ jobs:
 {% endif %}
 {% if "CS" in test_sections %}
 ## ======================================================================
-##   ____ ____  
-##  / ___/ ___| 
-## | |   \___ \ 
+##   ____ ____
+##  / ___/ ___|
+## | |   \___ \
 ## | |___ ___) |
-##  \____|____/ 
+##  \____|____/
 ## ======================================================================
 
 - name: gate_cs_start
@@ -1948,11 +2041,11 @@ jobs:
 {% endif %}
 {% if "MPP" in test_sections %}
 ## ======================================================================
-##  __  __ ____  ____  
-## |  \/  |  _ \|  _ \ 
+##  __  __ ____  ____
+## |  \/  |  _ \|  _ \
 ## | |\/| | |_) | |_) |
-## | |  | |  __/|  __/ 
-## |_|  |_|_|   |_|    
+## | |  | |  __/|  __/
+## |_|  |_|_|   |_|
 ## ======================================================================
 
 - name: gate_mpp_start
@@ -2115,7 +2208,7 @@ jobs:
 {% endif %}
 {% if "MM" in test_sections %}
 ## ======================================================================
-##  __  __ __  __ 
+##  __  __ __  __
 ## |  \/  |  \/  |
 ## | |\/| | |\/| |
 ## | |  | | |  | |
@@ -2258,6 +2351,43 @@ jobs:
       BEHAVE_TAGS: gpcheck_as_gpadmin
       GPCHECK_SETUP: true
 
+- name: MM_gpexpand
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      params:
+        submodules:
+        - gpMgmt/bin/pythonSrc/ext
+      passed: [gate_mm_start]
+    - get: gpdb_binary
+      resource: bin_gpdb_centos6
+      passed: [gate_mm_start]
+      trigger: [[ test_trigger ]]
+    - get: ccp_src
+    - get: centos-gpdb-dev-6
+  - put: terraform
+    params:
+      <<: *ccp_default_params
+      vars:
+        <<: *ccp_default_vars
+        number_of_nodes: 5
+  - task: gen_cluster
+    file: ccp_src/ci/tasks/gen_cluster.yml
+    params:
+      <<: *ccp_gen_cluster_default_params
+  - task: pre_run_test_setup
+    file: gpdb_src/concourse/tasks/setup_for_gpexpand_to_make_new_gpdb.yml
+    image: centos-gpdb-dev-6
+  - task: run_tests
+    file: gpdb_src/concourse/tasks/run_behave.yml
+    params:
+      BEHAVE_FLAGS: --tags=gpexpand
+    image: centos-gpdb-dev-6
+    on_success:
+      <<: *ccp_destroy
+  ensure:
+    <<: *set_failed
+
 {% for test_name in MM_2_suites %}
 - name: MM_[[ test_name ]]
   plan:
@@ -2302,10 +2432,8 @@ jobs:
     params:
       TEST_OS: centos
 
-{% for test_name in MM_gpexpand_suites %}
-- name: MM_[[ test_name ]]
+- name: MM_gpaddmirrors
   plan:
-  - *ccp_jitter_delay
   - aggregate:
     - get: gpdb_src
       params:
@@ -2323,53 +2451,35 @@ jobs:
       <<: *ccp_default_params
       vars:
         <<: *ccp_default_vars
-        number_of_nodes: 5
+        number_of_nodes: 4
   - task: gen_cluster
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
       <<: *ccp_gen_cluster_default_params
   - task: gpinitsystem
     file: ccp_src/ci/tasks/gpinitsystem.yml
-  - task: pre_run_test_setup
-    image: centos-gpdb-dev-6
-    config:
-      platform: linux
-      inputs:
-       - name: ccp_src
-       - name: cluster_env_files
-      run:
-        path: bash
-        args:
-        - -c
-        - |
-          set -ex
-          ccp_src/scripts/setup_ssh_to_cluster.sh
-          ssh -t mdw "HOST1=mdw HOST2=sdw1 HOST3=sdw2 HOST4=sdw3 HOST5=sdw4 \
-                      bash -c 'ssh-keygen -f ~/.ssh/id_rsa -y > ~/.ssh/id_rsa.pub; for i in mdw sdw{1..4}; do ssh centos@\$i \"sudo chmod 777 /usr/local\"; done'"
   - task: run_tests
-    file: gpdb_src/concourse/tasks/run_tinc.yml
+    file: gpdb_src/concourse/tasks/run_behave.yml
     image: centos-gpdb-dev-6
     params:
-      TINC_TARGET: [[ test_name ]]
-      CUSTOM_ENV: HOST1=mdw HOST2=sdw1 HOST3=sdw2 HOST4=sdw3 HOST5=sdw4
+      BEHAVE_FLAGS: --tags=gpaddmirrors
     on_success:
       <<: *ccp_destroy
   ensure:
     <<: *set_failed
 
-{% endfor %}
 - name: gate_mm_end
   plan:
   - aggregate:
     - get: gpdb_src
       passed: &gate_mm_end_passed
 {% for test_name in MM_1_suites +
-                    MM_2_suites +
-                    MM_gpexpand_suites %}
+                    MM_2_suites %}
       - MM_[[ test_name ]]
 {% endfor %}
       - MM_gppkg
       - MM_gpcheck
+      - MM_gpexpand
       - MM_pt-rebuild
       - MU_check_centos
       trigger: true
@@ -2379,7 +2489,7 @@ jobs:
 {% endif %}
 {% if "DPM" in test_sections %}
 ## ======================================================================
-##  ____  ____  __  __ 
+##  ____  ____  __  __
 ## |  _ \|  _ \|  \/  |
 ## | | | | |_) | |\/| |
 ## | |_| |  __/| |  | |
@@ -2468,7 +2578,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["ddboost"]
@@ -2478,7 +2588,7 @@ jobs:
     tags: ["ddboost"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2546,7 +2656,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["ddboost"]
@@ -2556,7 +2666,7 @@ jobs:
     tags: ["ddboost"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2624,7 +2734,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["ddboost"]
@@ -2634,7 +2744,7 @@ jobs:
     tags: ["ddboost"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2704,7 +2814,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["netbackup"]
@@ -2714,7 +2824,7 @@ jobs:
     tags: ["netbackup"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2762,7 +2872,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["netbackup"]
@@ -2772,7 +2882,7 @@ jobs:
     tags: ["netbackup"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2820,7 +2930,7 @@ jobs:
   - put: terraform_for_dpm
     params:
       <<: *ccp_default_params
-      terraform_source: ccp_src/aws-pivotal-pa-toolsmiths/
+      terraform_source: ccp_src/aws/
       vars:
         <<: *ccp_aws_default_vars
     tags: ["netbackup"]
@@ -2830,7 +2940,7 @@ jobs:
     tags: ["netbackup"]
     file: ccp_src/ci/tasks/gen_cluster.yml
     params:
-      <<: *ccp_gpdb4_gen_cluster_default_params
+      <<: *ccp_aws_gen_cluster_default_params
     on_failure:
       <<: *dpm_ccp_destroy
   - task: gpinitsystem
@@ -2856,8 +2966,6 @@ jobs:
 
 - name: DPM_backup_43_restore_5
   plan:
-  - get: nightly-trigger
-    trigger: [[ test_trigger ]]
   - *ccp_jitter_delay
   - aggregate:
     - get: gpdb_src
@@ -2868,6 +2976,7 @@ jobs:
     - get: gpdb_binary
       resource: bin_gpdb_centos6
       passed: [gate_dpm_start]
+      trigger: [[ test_trigger ]]
     - get: gpdb4_binary
       resource: bin_gpdb4_centos6
     - get: ccp_src
@@ -2906,8 +3015,6 @@ jobs:
 
 - name: gptransfer-43x-to-5x
   plan:
-  - get: nightly-trigger
-    trigger: [[ test_trigger ]]
   - *ccp_jitter_delay
   - aggregate:
     - get: gpdb_src
@@ -2915,6 +3022,7 @@ jobs:
     - get: gpdb_binary
       resource: bin_gpdb_centos6
       passed: [gate_dpm_start]
+      trigger: [[ test_trigger ]]
     - get: gpdb4_binary
       resource: bin_gpdb4_centos6
     - get: ccp_src
@@ -2965,6 +3073,8 @@ jobs:
         output_mapping:
           cluster_env_files: cluster_env_files2
       - task: gpinitsystem
+        input_mapping:
+          terraform: terraform2
         config:
           platform: linux
           image_resource:
@@ -3066,6 +3176,8 @@ jobs:
         output_mapping:
           cluster_env_files: cluster_env_files2
       - task: gpinitsystem
+        input_mapping:
+          terraform: terraform2
         config:
           platform: linux
           image_resource:
@@ -3142,11 +3254,11 @@ jobs:
 {% endif %}
 {% if "UD" in test_sections %}
 ## ======================================================================
-##  _   _ ____  
-## | | | |  _ \ 
+##  _   _ ____
+## | | | |  _ \
 ## | | | | | | |
 ## | |_| | |_| |
-##  \___/|____/ 
+##  \___/|____/
 ## ======================================================================
 
 - name: gate_ud_start
@@ -3187,10 +3299,10 @@ jobs:
       trigger: [[ test_trigger ]]
     - get: pxf_tarball
       trigger: [[ test_trigger ]]
-    - get: pxf_infra_src
+    - get: pxf_src
     - get: centos6-gpdb-dev-pxf-hdp
   - task: test_pxf
-    file: pxf_infra_src/concourse/test_pxf.yml
+    file: pxf_src/concourse/tasks/test_pxf.yml
     image: centos6-gpdb-dev-pxf-hdp
     params:
       GROUP: smoke
@@ -3198,7 +3310,7 @@ jobs:
       TARGET_OS: centos
       TARGET_OS_VERSION: 6
 
-- name: regression_tests_gphdfs_centos
+- name: regression_tests_gphdfs_hadoop_centos
   plan:
   - aggregate:
     - get: gpdb_src
@@ -3215,13 +3327,48 @@ jobs:
       TARGET_OS: centos
       TARGET_OS_VERSION: 6
 
+- name: regression_tests_gphdfs_mapr_centos
+  ensure:
+    <<: *set_failed
+  on_success:
+    <<: *ccp_destroy
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed: [gate_ud_start]
+    - get: bin_gpdb
+      passed: [gate_ud_start]
+      trigger: [[ test_trigger ]]
+      resource: bin_gpdb_centos6
+    - get: ccp_src
+    - get: centos-gpdb-dev-6
+  - put: terraform
+    params:
+      <<: *ccp_default_params
+      vars:
+        <<: *ccp_default_vars
+        number_of_nodes: 1
+        PLATFORM: centos7
+        instance_type: n1-standard-4
+  - task: gen_and_initialize_mapr
+    file: gpdb_src/concourse/tasks/gen_mapr.yml
+    params:
+      <<: *ccp_gen_cluster_default_params
+  - task: regression_tests_gphdfs_mapr
+    file: gpdb_src/concourse/tasks/regression_tests_gphdfs_mapr.yml
+    image: centos-gpdb-dev-6
+    params:
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 6
+
 - name: gate_ud_end
   plan:
   - aggregate:
     - get: gpdb_src
       passed: &gate_ud_end
       - regression_tests_pxf
-      - regression_tests_gphdfs_centos
+      - regression_tests_gphdfs_hadoop_centos
+      - regression_tests_gphdfs_mapr_centos
       trigger: true
     - get: bin_gpdb_centos6
       passed: *gate_ud_end
@@ -3229,10 +3376,10 @@ jobs:
 {% endif %}
 {% if "AA" in test_sections %}
 ## ======================================================================
-##     _        _    
-##    / \      / \   
-##   / _ \    / _ \  
-##  / ___ \  / ___ \ 
+##     _        _
+##    / \      / \
+##   / _ \    / _ \
+##  / ___ \  / ___ \
 ## /_/   \_\/_/   \_\
 ## ======================================================================
 
@@ -3351,12 +3498,12 @@ jobs:
 {% endif %}
 {% if "FileRep" in test_sections %}
 ## ======================================================================
-##  _____ _ _      ____            
-## |  ___(_) | ___|  _ \ ___ _ __  
-## | |_  | | |/ _ \ |_) / _ \ '_ \ 
+##  _____ _ _      ____
+## |  ___(_) | ___|  _ \ ___ _ __
+## | |_  | | |/ _ \ |_) / _ \ '_ \
 ## |  _| | | |  __/  _ <  __/ |_) |
-## |_|   |_|_|\___|_| \_\___| .__/ 
-##                          |_|    
+## |_|   |_|_|\___|_| \_\___| .__/
+##                          |_|
 ## ======================================================================
 
 - name: gate_filerep_start
@@ -3441,8 +3588,8 @@ jobs:
 {% endif %}
 {% if pipeline_type == "prod" %}
 ## ======================================================================
-##  ____      _                     
-## |  _ \ ___| | ___  __ _ ___  ___ 
+##  ____      _
+## |  _ \ ___| | ___  __ _ ___  ___
 ## | |_) / _ \ |/ _ \/ _` / __|/ _ \
 ## |  _ <  __/ |  __/ (_| \__ \  __/
 ## |_| \_\___|_|\___|\__,_|___/\___|
@@ -3463,19 +3610,23 @@ jobs:
       - compile_gpdb_aix7_remote
       - icw_planner_centos6
       - icw_gporca_centos6
-      - icw_gporca_centos7
+      - icw_planner_ictcp_centos6
       - icw_planner_centos7
+      - icw_gporca_centos7
+      - icw_planner_oracle7
+      - icw_gporca_oracle7
       - icw_gporca_sles11
       - icw_planner_ubuntu16
       - icw_gporca_conan_ubuntu16
       - test_gpdb_debian_package
-      - icw_planner_ictcp_centos6
       - icw_extensions_gpcloud
       - client_loader_remote_test_aix
       - mpp_resource_group_centos6
       - mpp_resource_group_centos7
       - MU_check_centos
+      - MM_gpaddmirrors
       - MM_gpcheck
+      - MM_gpexpand
       - DPM_backup-restore
       - MM_gppkg
       - MM_pt-rebuild
@@ -3488,7 +3639,8 @@ jobs:
       - cs_[[ test_name ]]
 {% endfor %}
       - QP_memory-accounting
-      - regression_tests_gphdfs_centos
+      - regression_tests_gphdfs_hadoop_centos
+      - regression_tests_gphdfs_mapr_centos
       - regression_tests_pxf
       - DPM_backup-restore_ddboost_part1
       - DPM_backup-restore_ddboost_part2
@@ -3498,8 +3650,7 @@ jobs:
       # - DPM_backup-restore_netbackup_part3
       - DPM_backup_43_restore_5
 {% for test_name in MM_1_suites +
-                    MM_2_suites +
-                    MM_gpexpand_suites %}
+                    MM_2_suites %}
       - MM_[[ test_name ]]
 {% endfor %}
       - gptransfer-43x-to-5x

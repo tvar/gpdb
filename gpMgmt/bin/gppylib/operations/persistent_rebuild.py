@@ -38,6 +38,7 @@ DEFAULT_BACKUP_DIR_PREFIX = 'pt_rebuild_bk_'
 PGPORT=os.environ.get('PGPORT', '5432')
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
 BACKUP_RESTORE_LOG = os.path.join('/tmp', 'pt_bkup_restore_' + TIMESTAMP + '.log')
+TRANSACTION_FILES_FILESPACE = 'gp_transaction_files_filespace'
 TRANSACTION_LOG_DIRS = ['pg_clog', 'pg_xlog', 'pg_distributedlog', 'pg_distributedxidmap', 'pg_changetracking']
 NON_EMPTY_TRANSACTION_LOG_DIRS = ['pg_clog', 'pg_xlog', 'pg_distributedlog']
 GLOBAL_PERSISTENT_FILES = defaultdict(defaultdict) # {segment: {dbid1: [file1, file2], dbid2: [file3, file4]}}
@@ -644,6 +645,21 @@ class BackupPersistentTableFiles:
         failures = 0
         for di in self.dbid_info:
             datadir = di.filespace_dirs[SYSTEM_FSOID].rstrip(os.sep)
+            transaction_filespace_path = os.path.join(datadir,
+                                                      TRANSACTION_FILES_FILESPACE)
+
+            # Change datadir if the transaction directories have been moved
+            if os.path.isfile(transaction_filespace_path):
+                try:
+                    with open(transaction_filespace_path) as file:
+                        fs_oid = file.readline().strip()
+
+                except e:
+                    raise('Cannot read file %s. Error: %s' %
+                          (transaction_filespace_path,  str(e)))
+
+                datadir = di.filespace_dirs[int(fs_oid)]
+
             allSrcFiles, allDestFiles = [], []
             for xlog_dir_name in TRANSACTION_LOG_DIRS:
                 xlog_dir = os.path.join(datadir, xlog_dir_name)
@@ -1099,7 +1115,7 @@ class RebuildPersistentTables(Operation):
         cmd = GpStop('Stop the greenplum database', fast=True)
         cmd.run(validateAfter=False)
 
-    def _start_database(self, admin_mode=False):
+    def _start_database(self, admin_mode=False, restricted_mode=False):
         """
         If admin_mode is set to True, it starts the database in
         admin mode. Since gpstart does not have an option to start
@@ -1107,7 +1123,8 @@ class RebuildPersistentTables(Operation):
         we stop the master only and restart it in utility mode
         so that it does not allow any connections
         """
-        cmd = GpStart('Start the greenplum databse')
+        cmd = GpStart('Start the greenplum database', masterOnly=False,
+                      restricted = restricted_mode)
         cmd.run(validateAfter=True)
         if admin_mode:
             # NOTE: There might be a case where gpstart has a lingering idle
@@ -1116,7 +1133,8 @@ class RebuildPersistentTables(Operation):
             # will stop can immediately.
             cmd = GpStop('Stop the greenplum database', masterOnly=True, force=True)
             cmd.run(validateAfter=True)
-            cmd = GpStart('Start the greenplum master in admin mode', masterOnly=True)
+            cmd = GpStart('Start the greenplum master in admin mode', masterOnly=True,
+                          restricted = restricted_mode)
             cmd.run(validateAfter=True)
 
     def _check_platform(self):
@@ -1437,8 +1455,8 @@ class RebuildPersistentTables(Operation):
         logger.info('Setting back gpperfmon guc')
         self.restore_gpperfmon_guc()
 
-        logger.info('Starting Greenplum database')
-        self._start_database()
+        logger.info('Starting Greenplum database in restricted mode')
+        self._start_database(restricted_mode=True)
 
         if failures:
             raise Exception('Persistent table rebuild was not completed succesfully and was restored back')

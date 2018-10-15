@@ -1,6 +1,6 @@
 ## Travis [![Travis Build Status](https://travis-ci.org/greenplum-db/gpdb.svg?branch=master)](https://travis-ci.org/greenplum-db/gpdb)
 
-## Concourse [![Concourse Build Status](https://gpdb.data.pivotal.ci/api/v1/teams/gpdb/pipelines/gpdb_master/jobs/gpdb_rc_packaging_centos/badge)](https://gpdb.data.pivotal.ci/teams/gpdb)
+## Concourse [![Concourse Build Status](https://prod.ci.gpdb.pivotal.io/api/v1/teams/main/pipelines/5X_STABLE/badge)](https://prod.ci.gpdb.pivotal.io/teams/main/pipelines/5X_STABLE)
 
 ----------------------------------------------------------------------
 
@@ -216,8 +216,11 @@ make distclean
 ### Building GPDB with PXF
 
 PXF is an extension framework for GPDB to enable fast access to external hadoop datasets.
-Refer to [PXF extension](https://github.com/greenplum-db/gpdb/tree/master/gpAux/extensions/pxf) for more information.
-Currently, GPDPB is built with PXF by default (--enable-pxf is on).
+
+Refer to [PXF extension](gpAux/extensions/pxf/README.md) for more information.
+
+Currently, GPDB is built with PXF by default (--enable-pxf is on).
+>>>>>>> 54dee6cebe... Use PXF server from apache/hawq to the new greenplum/pxf repo (#5798)
 In order to build GPDB without pxf, simply invoke `./configure` with additional option `--disable-pxf`.
 PXF requires curl, so `--enable-pxf` is not compatible with the `--without-libcurl` option.
 

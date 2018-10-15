@@ -12,6 +12,7 @@ m/^NOTICE:  extension "gp_inject_fault" already exists, skipping/
 m/^WARNING:  gpmon:.*Connection refused.*/
 
 m/^ Optimizer status:.*/
+m/^ Settings:.*/
 
 # There are a number of NOTICE and HINT messages around table distribution,
 # for example to inform the user that the database will pick a particular
@@ -98,4 +99,8 @@ s/Table "pg_temp_\d+.temp/Table "pg_temp_#####/
 # Mask out oid in error concurrent drop message
 m/\d+ was concurrently dropped/
 s/\d+ was concurrently dropped/##### was concurrently dropped/
+
+# Segment number is not predictable
+m/ERROR:  There are more external files \(URLs\) than primary segments that can read them.*/
+s/ERROR:  There are more external files \(URLs\) than primary segments that can read them.*/ERROR:  There are more external files (URLs) than primary segments that can read them./
 -- end_matchsubs

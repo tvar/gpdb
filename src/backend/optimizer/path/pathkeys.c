@@ -21,6 +21,7 @@
 
 #include "access/skey.h"
 #include "catalog/pg_type.h"
+#include "cdb/cdbhash.h"
 #include "nodes/makefuncs.h"
 #include "nodes/plannodes.h"
 #include "optimizer/clauses.h"
@@ -47,6 +48,8 @@ static PathKey *make_pathkey_from_sortinfo(PlannerInfo *root,
 						   Index sortref,
 						   bool canonicalize);
 static bool right_merge_direction(PlannerInfo *root, PathKey *pathkey);
+
+static bool op_in_eclass_opfamily(Oid opno, EquivalenceClass *eclass);
 
 
 /****************************************************************************
@@ -109,6 +112,26 @@ replace_expression_mutator(Node *node, void *context)
 	return expression_tree_mutator(node, replace_expression_mutator, (void *) context);
 }
 
+/*
+ * op_in_eclass_opfamily
+ *
+ *		Return t iff operator 'opno' is in eclass's operator family.
+ */
+static bool
+op_in_eclass_opfamily(Oid opno, EquivalenceClass *eclass)
+{
+	ListCell	*lc;
+
+	foreach(lc, eclass->ec_opfamilies)
+	{
+		Oid		opfamily = lfirst_oid(lc);
+
+		if (op_in_opfamily(opno, opfamily))
+			return true;
+	}
+	return false;
+}
+
 /**
  * Generate implied qual
  * Input:
@@ -146,8 +169,6 @@ gen_implied_qual(PlannerInfo *root,
 		return;
 
 	new_qualscope = pull_varnos(new_clause);
-
-	/* distribute_qual_to_rels doesn't accept pseudoconstants? XXX: doesn't it? */
 	if (new_qualscope == NULL)
 		return;
 
@@ -215,16 +236,40 @@ gen_implied_qual(PlannerInfo *root,
 static void
 gen_implied_quals(PlannerInfo *root, RestrictInfo *rinfo)
 {
+	Expr	   *clause = rinfo->clause;
+	Oid			opno,
+				item1_type,
+				item2_type;
+	Expr	   *item1;
+	Expr	   *item2;
 	ListCell   *lcec;
 
-	/*
-	 * Is it safe to infer from this clause?
-	 */
-	if (contain_volatile_functions((Node *) rinfo->clause) ||
-		contain_subplans((Node *) rinfo->clause))
-	{
+	if (rinfo->pseudoconstant)
 		return;
+	if (contain_volatile_functions((Node *) clause) ||
+		contain_subplans((Node *) clause))
+		return;
+
+	if (is_opclause(clause))
+	{
+		if (list_length(((OpExpr *) clause)->args) != 2)
+			return;
+		opno = ((OpExpr *) clause)->opno;
+		item1 = (Expr *) get_leftop(clause);
+		item2 = (Expr *) get_rightop(clause);
 	}
+	else if (clause && IsA(clause, ScalarArrayOpExpr))
+	{
+		if (list_length(((ScalarArrayOpExpr *) clause)->args) != 2)
+			return;
+		opno = ((ScalarArrayOpExpr *) clause)->opno;
+		item1 = (Expr *) get_leftscalararrayop(clause);
+		item2 = (Expr *) get_rightscalararrayop(clause);
+	}
+	else
+		return;
+
+	op_input_types(opno, &item1_type, &item2_type);
 
 	/*
 	 * Find every equivalence class that's relevant for this RestrictInfo.
@@ -237,13 +282,19 @@ gen_implied_quals(PlannerInfo *root, RestrictInfo *rinfo)
 		EquivalenceClass *eclass = (EquivalenceClass *) lfirst(lcec);
 		ListCell   *lcem1;
 
+		/*
+		 * Only generate derived clauses using operators from the same operator
+		 * family.
+		 */
+		if (!op_in_eclass_opfamily(opno, eclass))
+			continue;
+
 		/* Single-member ECs won't generate any deductions */
 		if (list_length(eclass->ec_members) <= 1)
 			continue;
 
 		if (!bms_overlap(eclass->ec_relids, rinfo->clause_relids))
-			continue;			/* none of the members can appear in the
-								 * clause */
+			continue;
 
 		foreach(lcem1, eclass->ec_members)
 		{
@@ -251,7 +302,7 @@ gen_implied_quals(PlannerInfo *root, RestrictInfo *rinfo)
 			ListCell   *lcem2;
 
 			if (!bms_overlap(em1->em_relids, rinfo->clause_relids))
-				continue;		/* this member cannot appear in the clause */
+				continue;
 
 			/*
 			 * Skip duplicating subplans clauses as multiple subplan node referring
@@ -260,6 +311,15 @@ gen_implied_quals(PlannerInfo *root, RestrictInfo *rinfo)
 			 */
 			if (contain_subplans((Node *) em1->em_expr))
 				continue;
+
+			/*
+			 * Skip if this EquivalenceMember does not match neither left expr
+			 * nor right expr.
+			 */
+			if (!((item1_type == em1->em_datatype && equal(item1, em1->em_expr)) ||
+					(item2_type == em1->em_datatype && equal(item2, em1->em_expr))))
+				continue;
+
 			/* now try to apply to others in the equivalence class */
 			foreach(lcem2, eclass->ec_members)
 			{
@@ -1279,6 +1339,56 @@ make_pathkeys_for_sortclauses(PlannerInfo *root,
 			pathkeys = lappend(pathkeys, pathkey);
 	}
 	return pathkeys;
+}
+
+/****************************************************************************
+ *		DISTRIBUTION KEYS
+ ****************************************************************************/
+
+/*
+ * Make a list of PathKeys, and a list of plain expressions, to represent a
+ * distribution key that is suitable for implementing grouping on the given
+ * grouping clause. Only expressions that are GPDB-hashable are included,
+ * so the resulting lists can be shorter than 'groupclause', or even empty.
+ *
+ * The result is stored in *partition_dist_keys and *partition_dist_exprs.
+ * *partition_dist_keys is set to a list of PathKeys, and
+ * *partition_dist_exprs to a corresponding list of plain expressions.
+ */
+void
+make_distribution_keys_for_groupclause(PlannerInfo *root, List *groupclause, List *tlist,
+									   List **partition_dist_keys,
+									   List **partition_dist_exprs)
+{
+	List	   *pathkeys = NIL;
+	List	   *exprs = NIL;
+	ListCell   *l;
+
+	foreach(l, groupclause)
+	{
+		SortClause *sortcl = (SortClause *) lfirst(l);
+		Expr	   *expr;
+		PathKey    *pathkey;
+
+		expr = (Expr *) get_sortgroupclause_expr(sortcl, tlist);
+
+		if (!isGreenplumDbHashable(exprType((Node *) expr)))
+			continue;
+
+		Assert(OidIsValid(sortcl->sortop));
+		pathkey = make_pathkey_from_sortinfo(root,
+											 expr,
+											 sortcl->sortop,
+											 sortcl->nulls_first,
+											 sortcl->tleSortGroupRef,
+											 true);
+
+		pathkeys = lappend(pathkeys, pathkey);
+		exprs = lappend(exprs, expr);
+	}
+
+	*partition_dist_keys = pathkeys;
+	*partition_dist_exprs = exprs;
 }
 
 /****************************************************************************

@@ -337,6 +337,7 @@ typedef struct _tableInfo
 	struct _tableInfo **parents;	/* TableInfos of immediate parents */
 	struct _tableDataInfo *dataObj;		/* TableDataInfo, if dumping its data */
 	Oid			parrelid;			/* external partition's parent oid */
+	bool		parparent;		/* true if the table is partition parent */
 } TableInfo;
 
 typedef struct _attrDefInfo
@@ -553,7 +554,9 @@ extern void parseOidArray(const char *str, Oid *array, int arraysize);
 
 extern void sortDumpableObjects(DumpableObject **objs, int numObjs);
 extern void sortDumpableObjectsByTypeName(DumpableObject **objs, int numObjs);
+#if 0 /* GPDB_100_MERGE_FIXME: we don't support pre-7.3 dumps. */
 extern void sortDumpableObjectsByTypeOid(DumpableObject **objs, int numObjs);
+#endif
 
 
 /*

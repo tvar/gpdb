@@ -20,7 +20,9 @@
 #include "postgres.h"
 
 #include "nodes/makefuncs.h"
+#include "parser/parse_expr.h"
 
+#include "cdb/cdbhash.h"
 #include "cdb/cdbllize.h"
 #include "cdb/cdbmutate.h"
 #include "cdb/cdbsetop.h"
@@ -30,7 +32,6 @@
 #include "parser/parse_expr.h"
 
 static Flow *copyFlow(Flow *model_flow, bool withExprs, bool withSort);
-static List *makeHashExprsFromNonjunkTargets(List *targetList);
 
 #define ARRAYCOPY(to, from, sz) \
 	do { \
@@ -166,7 +167,15 @@ void adjust_setop_arguments(List *planlist, GpSetOpType setop_type)
 					break;
 					
 				case CdbLocusType_SingleQE:
-					Assert( subplanflow->flotype == FLOW_SINGLETON && subplanflow->segindex == 0 );
+					Assert(subplanflow->flotype == FLOW_SINGLETON);
+
+					/*
+					 * The input was focused on a single QE, but we need it in the QD.
+					 * It's bit silly to add a Motion to just move the whole result from
+					 * single QE to QD, it would be better to produce the result in the
+					 * QD in the first place, and avoid the Motion. But it's too late
+					 * to modify the subplan.
+					 */
 					adjusted_plan = (Plan*)make_motion_gather_to_QD(subplan, false);				
 					break;
 
@@ -337,7 +346,7 @@ make_motion_gather(Plan *subplan, int segindex, bool keep_ordering)
 
 	Assert(subplan->flow != NULL);
 	Assert(subplan->flow->flotype == FLOW_PARTITIONED ||
-		   (subplan->flow->flotype == FLOW_SINGLETON && subplan->flow->segindex == 0));
+		   subplan->flow->flotype == FLOW_SINGLETON);
 
 	if ( keep_ordering && subplan->flow->numSortCols > 0 )
 	{
@@ -368,12 +377,44 @@ make_motion_gather(Plan *subplan, int segindex, bool keep_ordering)
  *		Add a Motion node atop the given subplan to hash collocate
  *      tuples non-distinct on the non-junk attributes.  This motion
  *      should only be applied to a non-replicated, non-root subplan.
+ *
+ * This will align with the sort attributes used as input to a SetOp
+ * or Unique operator. This is used in plans for UNION and other
+ * set-operations that implicitly do a DISTINCT on the whole target
+ * list.
  */
 Motion *
 make_motion_hash_all_targets(PlannerInfo *root, Plan *subplan)
 {
-	List *hashexprs = makeHashExprsFromNonjunkTargets(subplan->targetlist);	
-	return make_motion_hash(root, subplan, hashexprs);
+	ListCell   *cell;
+	List	   *hashexprs = NIL;
+
+	foreach(cell, subplan->targetlist)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(cell);
+
+		if (tle->resjunk)
+			continue;
+
+		if (!isGreenplumDbHashable(exprType((Node *) tle->expr)))
+			continue;
+
+		hashexprs = lappend(hashexprs, copyObject(tle->expr));
+	}
+
+	if (hashexprs)
+		return make_motion_hash(root, subplan, hashexprs);
+	else
+	{
+		/*
+		 * Degenerate case, where none of the columns are hashable.
+		 *
+		 * (If the caller knew this, it probably would have been better to
+		 * produce a different plan, with Sorts in the segments, and an
+		 * order-preserving gather on the top.)
+		 */
+		return make_motion_gather(subplan, -1, false);
+	}
 }
 
 /*
@@ -395,34 +436,6 @@ make_motion_hash(PlannerInfo *root __attribute__((unused)) , Plan *subplan, List
 		false /* useExecutorVarFormat */);
 
 	return motion;
-}
-
-/*
- * makeHashExprsFromNonjunkTargets
- *		Make a list of hash expressions over all non-resjunk targets in
- *		the targetlist are in the given target list.  This will align
- *		with the sort attributes used as input to a SetOp or Unique
- *		operator.
- *
- * Returns the newly allocate expression list for a Motion node.
- */
-List *makeHashExprsFromNonjunkTargets(List *targetlist)
-{
-	ListCell   *cell;
-	List *hashlist = NIL;
-
-	foreach(cell, targetlist)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(cell);
-
-		if (!tle->resjunk && isGreenplumDbHashable(exprType((Node *) tle->expr)))
-		{
-			
-			hashlist = lappend(hashlist, copyObject(tle->expr));
-		}
-	}
-	return hashlist;
-
 }
 
 /*

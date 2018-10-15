@@ -39,6 +39,9 @@
             <xref href="#topic8339717" type="topic" format="dita"/>
           </li>
         </ul></li>
+      <li id="im16806gpcc" otherprops="pivotal">
+        <xref href="#topic999" format="dita"/>
+      </li>
       <li id="im16806d">
         <xref href="#topic71717999" type="topic" format="dita"/>
         <ul id="ul_wjf_1wy_spXX">
@@ -235,6 +238,10 @@
           <codeph>CONCURRENCY</codeph> limit. When a running transaction completes, Greenplum
         Database un-queues and executes the earliest queued transaction if sufficient memory
         resources exist.</p>
+      <p>You can set the server configuration parameter <codeph><xref
+            href="../ref_guide/config_params/guc-list.xml#gp_resource_group_bypass" type="section"
+            scope="peer">gp_resource_group_bypass</xref></codeph> to bypass a resource group
+        concurrency limit.</p>
     </body>
   </topic>
 
@@ -487,6 +494,25 @@ rg_perseg_mem = ((RAM * (vm.overcommit_ratio / 100) + SWAP) * gp_resource_group_
           Database user-defined functions.</p>
       </body>
     </topic>
+  </topic>
+
+  <topic id="topic999" otherprops="pivotal" xml:lang="en">
+    <title>Using Greenplum Command Center to Manage Resource Groups</title>
+    <body>
+      <p>Using Pivotal Greenplum Command Center, an administrator can create and manage resource
+        groups, change roles' resource groups, and create workload management rules. </p>
+      <p>Workload management rules are defined in Command Center and stored in Greenplum Database.
+        When a transaction is submitted, Greenplum Database calls the workload management database
+        extension to evaluate and apply the rules. </p>
+      <p>Workload management assignment rules assign transactions to different resource groups based
+        on user-defined criteria. If no assignment rule is matched, Greenplum Database assigns the
+        transaction to the role's default resource group. Workload management idle session kill
+        rules set the maximum number of seconds that sessions managed by a resource group can remain
+        idle before they are terminated.</p>
+      <p>Refer to the <xref href="http://gpcc.docs.pivotal.io/latest" format="html" scope="external"
+          >Greenplum Command Center documentation</xref> for more information about creating and
+        managing resource groups and workload management rules. </p>
+    </body>
   </topic>
 
   <topic id="topic71717999" xml:lang="en">

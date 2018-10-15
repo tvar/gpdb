@@ -3836,6 +3836,25 @@ NOTICE:  CREATE TABLE will create partition "partsupp_1_prt_nnull" for table "pa
 alter table partsupp add partition foo start(500) end(NULL);
 ERROR:  cannot use NULL with range partition specification
 drop table partsupp;
+-- Test for an old bug, where we used to crash on NULLs, because the code
+-- to order the partitions by their start/end boundaries did not anticipate
+-- NULLs. NULLs in boundaries are not accepted, but because we check for
+-- them only after ordering the partitions, the sorting code needs to
+-- handle them. (This test needs at least two partitions, so that there
+-- is something to sort.)
+create table partnulltest (
+  col1 int,
+  col2 numeric
+)
+distributed by (col1)
+partition by range(col2)
+(
+  partition part2 start(1) end(10) ,
+  partition part1 start (NULL)
+);
+ERROR:  cannot use NULL with range partition specification
+LINE 9:   partition part1 start (NULL)
+                          ^
 --MPP-6240
 CREATE TABLE supplier_hybrid_part(
                 S_SUPPKEY INTEGER,
@@ -7873,3 +7892,34 @@ NOTICE:  exchanged partition "other_log_ids" of relation "test_split_part" with 
 NOTICE:  dropped partition "other_log_ids" for relation "test_split_part"
 NOTICE:  CREATE TABLE will create partition "test_split_part_1_prt_New" for table "test_split_part"
 NOTICE:  CREATE TABLE will create partition "test_split_part_1_prt_other_log_ids" for table "test_split_part"
+-- Only the root partition should have automatically created an array type
+select typname, typtype from pg_type where typname like '%test_split_part%' and typtype = 'b';
+     typname      | typtype 
+------------------+---------
+ _test_split_part | b
+(1 row)
+
+select array_agg(test_split_part) from test_split_part where log_id = 500;
+   array_agg    
+----------------
+ {"(500,{10})"}
+(1 row)
+
+select array_agg(test_split_part_1_prt_other_log_ids) from test_split_part_1_prt_other_log_ids where log_id = 500;
+ERROR:  could not find array type for data type test_split_part_1_prt_other_log_ids
+-- MPP-26829
+-- This should fail
+CREATE TABLE MPP_26829
+(a integer, b integer NOT NULL, c integer)
+DISTRIBUTED BY (a)
+PARTITION BY RANGE (b)
+SUBPARTITION TEMPLATE (START (1) END (12) EVERY (1), DEFAULT SUBPARTITION other_months )
+SUBPARTITION BY LIST (c)
+SUBPARTITION TEMPLATE (
+SUBPARTITION p027 VALUES ('027'),
+SUBPARTITION p141 VALUES ('141'),
+SUBPARTITION p037 VALUES ('037'));
+ERROR:  SUBPARTITION TEMPLATE need to be nested under a SUBPARTITION BY at or near "SUBPARTITION"
+LINE 7: SUBPARTITION TEMPLATE ( 
+        ^
+-- MPP-26829

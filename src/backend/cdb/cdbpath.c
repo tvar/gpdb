@@ -279,6 +279,7 @@ typedef struct
 {
     PlannerInfo    *root;
     List           *mergeclause_list;
+    Path           *path;
     CdbPathLocus    locus;
     CdbPathLocus   *colocus;
     bool            colocus_eq_locus;
@@ -356,19 +357,31 @@ cdbpath_match_preds_to_partkey_tail(CdbpathMatchPredsContext *ctx,
 		foreach(rcell, ctx->mergeclause_list)
 		{
 			ListCell   *i;
+			EquivalenceClass *a_ec; /* Corresponding to ctx->path. */
+			EquivalenceClass *b_ec;
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(rcell);
 
 			if (!rinfo->left_ec)
 				cache_mergeclause_eclasses(ctx->root, rinfo);
 
+			if (bms_is_subset(rinfo->right_relids, ctx->path->parent->relids))
+			{
+				a_ec = rinfo->right_ec;
+				b_ec = rinfo->left_ec;
+			}
+			else
+			{
+				a_ec = rinfo->left_ec;
+				b_ec = rinfo->right_ec;
+				Assert(bms_is_subset(rinfo->left_relids, ctx->path->parent->relids));
+			}
+
 			if (CdbPathLocus_IsHashed(ctx->locus))
 			{
 				PathKey    *pathkey = (PathKey *) lfirst(partkeycell);
 
-				if (pathkey->pk_eclass == rinfo->left_ec)
-					copathkey = makePathKeyForEC(rinfo->right_ec);
-				else if (pathkey->pk_eclass == rinfo->right_ec)
-					copathkey = makePathKeyForEC(rinfo->left_ec);
+				if (pathkey->pk_eclass == a_ec)
+					copathkey = makePathKeyForEC(b_ec);
 			}
 			else if (CdbPathLocus_IsHashedOJ(ctx->locus))
 			{
@@ -378,10 +391,8 @@ cdbpath_match_preds_to_partkey_tail(CdbpathMatchPredsContext *ctx,
 				{
 					PathKey    *pathkey = (PathKey *) lfirst(i);
 
-					if (pathkey->pk_eclass == rinfo->left_ec)
-						copathkey = makePathKeyForEC(rinfo->right_ec);
-					else if (pathkey->pk_eclass == rinfo->right_ec)
-						copathkey = makePathKeyForEC(rinfo->left_ec);
+					if (pathkey->pk_eclass == a_ec)
+						copathkey = makePathKeyForEC(b_ec);
 				}
 			}
 
@@ -445,6 +456,7 @@ cdbpath_match_preds_to_partkey_tail(CdbpathMatchPredsContext *ctx,
 static bool
 cdbpath_match_preds_to_partkey(PlannerInfo     *root,
                                List            *mergeclause_list,
+                               Path            *path,
                                CdbPathLocus     locus,
                                CdbPathLocus    *colocus)            /* OUT */
 {
@@ -458,6 +470,7 @@ cdbpath_match_preds_to_partkey(PlannerInfo     *root,
 
     ctx.root                = root;
     ctx.mergeclause_list    = mergeclause_list;
+    ctx.path                = path;
     ctx.locus               = locus;
     ctx.colocus             = colocus;
     ctx.colocus_eq_locus    = true;
@@ -656,12 +669,22 @@ cdbpath_partkeys_from_preds(PlannerInfo    *root,
         if (!b_partkey && rinfo->left_ec == rinfo->right_ec)
         {
 			ListCell *i;
+			bool found = false;
 
 			foreach(i, a_partkey)
 			{
 				PathKey *pathkey = (PathKey *) lfirst(i);
 				if (pathkey->pk_eclass == rinfo->left_ec)
-					a_partkey = lappend(a_partkey, rinfo->left_ec);
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				PathKey    *a_pk = makePathKeyForEC(rinfo->left_ec);
+				a_partkey = lappend(a_partkey, a_pk);
 			}
         }
 
@@ -769,7 +792,7 @@ cdbpath_motion_for_join(PlannerInfo    *root,
                         JoinType        jointype,           /* JOIN_INNER/FULL/LEFT/RIGHT/IN */
                         Path          **p_outer_path,       /* INOUT */
                         Path          **p_inner_path,       /* INOUT */
-                        List           *mergeclause_list,   /* equijoin RestrictInfo list */
+                        List           *redistribution_clauses,   /* equijoin RestrictInfo list */
                         List           *outer_pathkeys,
                         List           *inner_pathkeys,
                         bool            outer_require_existing_order,
@@ -913,11 +936,15 @@ cdbpath_motion_for_join(PlannerInfo    *root,
 
         /* If the bottlenecked rel can't be moved, bring the other rel to it. */
         if (single_immovable)
+        {
+            Assert(!other_immovable);
             other->move_to = single->locus;
+        }
 
         /* Redistribute single rel if joining on other rel's partitioning key */
         else if (cdbpath_match_preds_to_partkey(root,
-                                                mergeclause_list,
+                                                redistribution_clauses,
+                                                other->path,
                                                 other->locus,
                                                 &single->move_to))  /* OUT */
         {}
@@ -928,9 +955,9 @@ cdbpath_motion_for_join(PlannerInfo    *root,
             CdbPathLocus_MakeReplicated(&single->move_to);
 
         /* Redistribute both rels on equijoin cols. */
-        else if (!other->require_existing_order &&
+        else if (!other_immovable &&
                  cdbpath_partkeys_from_preds(root,
-                                             mergeclause_list,
+                                             redistribution_clauses,
                                              single->path,
                                              &single->move_to,  /* OUT */
                                              &other->move_to))  /* OUT */
@@ -965,7 +992,7 @@ cdbpath_motion_for_join(PlannerInfo    *root,
     /*
      * No motion if partitioned alike and joining on the partitioning keys.
      */
-    else if (cdbpath_match_preds_to_both_partkeys(root, mergeclause_list,
+    else if (cdbpath_match_preds_to_both_partkeys(root, redistribution_clauses,
                                                   outer.locus, inner.locus))
         return cdbpathlocus_join(outer.locus, inner.locus);
 
@@ -994,7 +1021,8 @@ cdbpath_motion_for_join(PlannerInfo    *root,
         /* If joining on larger rel's partitioning key, redistribute smaller. */
         if (!small->require_existing_order &&
             cdbpath_match_preds_to_partkey(root,
-                                           mergeclause_list,
+                                           redistribution_clauses,
+                                           large->path,
                                            large->locus,
                                            &small->move_to))    /* OUT */
         {}
@@ -1010,7 +1038,8 @@ cdbpath_motion_for_join(PlannerInfo    *root,
         /* If joining on smaller rel's partitioning key, redistribute larger. */
         else if (!large->require_existing_order &&
                  cdbpath_match_preds_to_partkey(root,
-                                                mergeclause_list,
+                                                redistribution_clauses,
+                                                small->path,
                                                 small->locus,
                                                 &large->move_to))   /* OUT */
         {}
@@ -1023,9 +1052,11 @@ cdbpath_motion_for_join(PlannerInfo    *root,
 
         /* Redistribute both rels on equijoin cols. */
         else if (!small->require_existing_order &&
+                 !small->has_wts &&
                  !large->require_existing_order &&
+                 !large->has_wts &&
                  cdbpath_partkeys_from_preds(root,
-                                             mergeclause_list,
+                                             redistribution_clauses,
                                              large->path,
                                              &large->move_to,
                                              &small->move_to))
@@ -1602,4 +1633,43 @@ cdbpath_contains_wts(Path *path)
 	}
 
 	return path->pathtype == T_WorkTableScan;
+}
+
+
+/*
+ * has_redistributable_clause
+ *	  If the restrictinfo's clause is redistributable, return true.
+ */
+bool
+has_redistributable_clause(RestrictInfo *restrictinfo)
+{
+	Expr	   *clause = restrictinfo->clause;
+	Oid			opno;
+
+	/**
+	 * If this is a IS NOT FALSE boolean test, we can peek underneath.
+	 */
+	if (IsA(clause, BooleanTest))
+	{
+		BooleanTest *bt = (BooleanTest *) clause;
+
+		if (bt->booltesttype == IS_NOT_FALSE)
+		{
+			clause = bt->arg;
+		}
+	}
+
+	if (restrictinfo->pseudoconstant)
+		return false;
+	if (!is_opclause(clause))
+		return false;
+	if (list_length(((OpExpr *) clause)->args) != 2)
+		return false;
+
+	opno = ((OpExpr *) clause)->opno;
+
+	if (isGreenplumDbOprRedistributable(opno))
+		return true;
+	else
+		return false;
 }

@@ -203,26 +203,6 @@ SELECT pg_cancel_backend(procpid) FROM pg_stat_activity WHERE waiting_reason='re
 DROP ROLE role_concurrency_test;
 DROP RESOURCE GROUP rg_concurrency_test;
 
--- test9: SET command should be bypassed
-DROP ROLE IF EXISTS role_concurrency_test;
--- start_ignore
-DROP RESOURCE GROUP rg_concurrency_test;
--- end_ignore
-
-CREATE RESOURCE GROUP rg_concurrency_test WITH (concurrency=0, cpu_rate_limit=20, memory_limit=20);
-CREATE ROLE role_concurrency_test RESOURCE GROUP rg_concurrency_test;
-61: SET ROLE role_concurrency_test;
-61&: SELECT 1;
-ALTER RESOURCE GROUP rg_concurrency_test set concurrency 1;
-61<:
-ALTER RESOURCE GROUP rg_concurrency_test set concurrency 0;
-61: SET enable_hashagg to on;
-61: SHOW enable_hashagg;
-61: invalid_syntax;
-61q:
-DROP ROLE role_concurrency_test;
-DROP RESOURCE GROUP rg_concurrency_test;
-
 --
 -- Test cursors, pl/* functions only take one slot.
 --
@@ -238,7 +218,6 @@ CREATE ROLE role_concurrency_test RESOURCE GROUP rg_concurrency_test;
 71:DECLARE c1 CURSOR for select c1, c2 from foo_concurrency_test order by c1 limit 10;
 71:DECLARE c2 CURSOR for select c1, c2 from bar_concurrency_test order by c1 limit 10;
 71:DECLARE c3 CURSOR for select count(*) from foo_concurrency_test t1, bar_concurrency_test t2 where t1.c2 = t2.c2;
-71:
 71:Fetch ALL FROM c1;
 71:Fetch ALL FROM c2;
 71:Fetch ALL FROM c3;

@@ -1,3 +1,4 @@
+
 CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
 
 drop table if exists _tmp_table;
@@ -25,6 +26,12 @@ create table testsisc (i1 int, i2 int, i3 int, i4 int);
 insert into testsisc select i, i % 1000, i % 100000, i % 75 from
 (select generate_series(1, nsegments * 50000) as i from 
 	(select count(*) as nsegments from gp_segment_configuration where role='p' and content >= 0) foo) bar; 
+
+-- Reset the fault here otherwise it interferes with
+-- execshare_input_next fault below, when gp_enable_mk_sort is turned
+-- back on later in the test.
+select gp_inject_fault('execsort_mksort_mergeruns', 'status', 2);
+select gp_inject_fault('execsort_mksort_mergeruns', 'reset', 2);
 
 set gp_resqueue_print_operator_memory_limits=on;
 set statement_mem='2MB';
@@ -58,8 +65,6 @@ LIMIT 2;
 select gp_inject_fault('execshare_input_next', 'status', 2);
 
 reset gp_enable_mk_sort;
--- Disable faultinjectors
-select gp_inject_fault('execsort_mksort_mergeruns', 'reset', 2);
 select gp_inject_fault('execshare_input_next', 'reset', 2);
 
 -- test if a query can be canceled when cancel signal arrives fast than the query dispatched.
@@ -67,11 +72,9 @@ create table _tmp_table1 as select i as c1, i as c2 from generate_series(1, 10) 
 create table _tmp_table2 as select i as c1, 0 as c2 from generate_series(0, 10) i;
 
 -- make one QE sleep before reading command
-select gp_inject_fault('before_read_command', 'sleep', '', '', '', 1, 50, 2::smallint);
+select gp_inject_fault_new('before_read_command', 'sleep', '', '', '', 1, 1, 50, 2::smallint);
 
-begin;
 select count(*) from _tmp_table1, _tmp_table2 where 100 / _tmp_table2.c2 > 1;
-end;
 
 select gp_inject_fault('before_read_command', 'reset', 2);
 drop table _tmp_table1;

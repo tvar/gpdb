@@ -19,6 +19,8 @@ from gppylib.db import dbconn
 from gppylib.gparray import GpArray, MODE_SYNCHRONIZED, MODE_RESYNCHRONIZATION
 from gppylib.operations.backup_utils import pg, escapeDoubleQuoteInSQLString
 
+import socket
+
 # We do this to allow behave to use 4.3 or 5.0 source code
 # 4.3 does not have the escape_string function
 have_escape_string = True
@@ -125,10 +127,10 @@ def run_cmd(command):
     return (result.rc, result.stdout, result.stderr)
 
 
-def run_command_remote(context, command, host, source_file, export_mdd):
+def run_command_remote(context, command, host, source_file, export_mdd, validateAfter=True):
     cmd = Command(name='run command %s' % command,
                   cmdStr='gpssh -h %s -e \'source %s; %s; %s\'' % (host, source_file, export_mdd, command))
-    cmd.run(validateAfter=True)
+    cmd.run(validateAfter=validateAfter)
     result = cmd.get_results()
     context.ret_code = result.rc
     context.stdout_message = result.stdout
@@ -260,10 +262,12 @@ def check_db_exists(dbname, host=None, port=0, user=None):
     return False
 
 
-def create_database_if_not_exists(context, dbname, host=None, port=0, user=None):
+def create_database_if_not_exists(context, dbname, host=None, port=0, user=None, saveConnInfoInContext=False):
     if not check_db_exists(dbname, host, port, user):
         create_database(context, dbname, host, port, user)
-
+    if saveConnInfoInContext:
+        context.dbname = dbname
+        context.conn = dbconn.connect(dbconn.DbURL(dbname=context.dbname))
 
 def create_database(context, dbname=None, host=None, port=0, user=None):
     LOOPS = 10
@@ -839,6 +843,10 @@ def create_int_table(context, table_name, table_type='heap', dbname='testdb'):
 
 
 def drop_database(context, dbname, host=None, port=0, user=None):
+    # We need this because context.conn might have a connection to the database that we are about to drop.
+    if hasattr(context, "conn") and (context.conn is not None) and (context.conn._cnx.db == dbname):
+        context.conn.close()
+
     LOOPS = 10
     if host == None or port == 0 or user == None:
         dropdb_cmd = 'dropdb %s' % dbname
@@ -961,17 +969,22 @@ def validate_distribution_policy(context, dbname):
     diff_files(backup_file, restore_file)
 
 
-def check_row_count(tablename, dbname, nrows):
+def check_row_count(context, tablename, dbname, nrows):
     NUM_ROWS_QUERY = 'select count(*) from %s' % tablename
     # We want to bubble up the exception so that if table does not exist, the test fails
-    with dbconn.connect(dbconn.DbURL(dbname=dbname)) as conn:
+    if hasattr(context, 'standby_was_activated') and context.standby_was_activated is True:
+        dburl = dbconn.DbURL(dbname=dbname, port=context.standby_port, hostname=context.standby_hostname)
+    else:
+        dburl = dbconn.DbURL(dbname=dbname)
+
+    with dbconn.connect(dburl) as conn:
         result = dbconn.execSQLForSingleton(conn, NUM_ROWS_QUERY)
     if result != nrows:
         raise Exception('%d rows in table %s.%s, expected row count = %d' % (result, dbname, tablename, nrows))
 
 
-def check_empty_table(tablename, dbname):
-    check_row_count(tablename, dbname, 0)
+def check_empty_table(context, tablename, dbname):
+    check_row_count(context, tablename, dbname, 0)
 
 
 def match_table_select(context, src_tablename, src_dbname, dest_tablename, dest_dbname, orderby=None, options=''):
@@ -1387,8 +1400,24 @@ def create_gpfilespace_config(host, port, user, fs_name, config_file, working_di
     fspath_standby = working_dir + '/fs_standby'
     fspath_primary = working_dir + '/fs_primary'
     fspath_mirror = working_dir + '/fs_mirror'
-    get_master_filespace_entry = 'psql -t -h %s -p %s -U %s -d template1 -c \" select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role =\'p\' and content=-1;\"' % (
-    host, port, user)
+
+    if host == None:
+        host = ""
+    else:
+        host = "-h %s" % host
+
+    if port == None:
+        port = ""
+    else:
+        port = "-p %s" % port
+
+    if user == None:
+        user = ""
+    else:
+        user = "-U %s" % user
+
+    get_master_filespace_entry = '''psql -t %s %s %s -d template1 -c "select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role ='p' and content=-1;"''' % (
+        host, port, user)
     (rc, out, err) = run_cmd(get_master_filespace_entry)
     if rc != 0:
         raise Exception('Exception from executing psql query: %s' % get_master_filespace_entry)
@@ -1408,8 +1437,8 @@ def create_gpfilespace_config(host, port, user, fs_name, config_file, working_di
                 file.write('\n')
         file.close()
 
-    get_standby_filespace_entry = 'psql -t -h %s -p %s -U %s -d template1 -c \"select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role =\'m\' and content=-1;\"' % (
-    host, port, user)
+    get_standby_filespace_entry = '''psql -t %s %s %s -d template1 -c "select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role ='m' and content=-1;"''' % (
+        host, port, user)
     (rc, out, err) = run_cmd(get_standby_filespace_entry)
     if rc != 0:
         raise Exception('Exception from executing psql query: %s' % get_standby_filespace_entry)
@@ -1428,8 +1457,8 @@ def create_gpfilespace_config(host, port, user, fs_name, config_file, working_di
                 file.write('\n')
         file.close()
 
-    get_primary_filespace_entry = 'psql -t -h %s -p %s -U %s -d template1 -c \"select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role =\'p\' and content>-1;\"' % (
-    host, port, user)
+    get_primary_filespace_entry = '''psql -t %s %s %s -d template1 -c "select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role ='p' and content>-1;"''' % (
+        host, port, user)
     (rc, out, err) = run_cmd(get_primary_filespace_entry)
     if rc != 0:
         raise Exception('Exception from executing psql query: %s' % get_primary_filespace_entry)
@@ -1448,8 +1477,8 @@ def create_gpfilespace_config(host, port, user, fs_name, config_file, working_di
                 file.write('\n')
         file.close()
 
-    get_mirror_filespace_entry = 'psql -t -h %s -p %s -U %s -d template1 -c \"select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role =\'m\' and content>-1;\"' % (
-    host, port, user)
+    get_mirror_filespace_entry = '''psql -t %s %s %s -d template1 -c "select hostname, dbid, fselocation from pg_filespace_entry, gp_segment_configuration where dbid=fsedbid and preferred_role ='m' and content>-1;"''' % (
+        host, port, user)
     (rc, out, err) = run_cmd(get_mirror_filespace_entry)
     if rc != 0:
         raise Exception('Exception from executing psql query: %s' % get_mirror_filespace_entry)
@@ -1481,12 +1510,22 @@ def create_gpfilespace_config(host, port, user, fs_name, config_file, working_di
 
 
 def remove_dir(host, directory):
-    cmd = 'gpssh -h %s -e \'rm -rf %s\'' % (host, directory)
+    cmd = 'rm -rf %s' % directory
+
+    #use gpssh if remote
+    if host != socket.gethostname():
+        cmd = "gpssh -h %s -e '%s'" % (host, cmd)
+
     run_cmd(cmd)
 
 
 def create_dir(host, directory):
-    cmd = 'gpssh -h %s -e \'mkdir -p %s\'' % (host, directory)
+    cmd = 'mkdir -p %s' % directory
+
+    #use gpssh if remote
+    if host != socket.gethostname():
+        cmd = "gpssh -h %s -e '%s'" % (host, cmd)
+
     run_cmd(cmd)
 
 

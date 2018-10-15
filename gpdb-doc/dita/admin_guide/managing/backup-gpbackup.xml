@@ -55,7 +55,22 @@
               <codeph>--leaf-partition-data</codeph>. Although you can specify leaf partition names
             in a file specified with <codeph>--exclude-table-file</codeph>,
               <codeph>gpbackup</codeph> ignores the partition names.</li>
-          <li>Incremental backups are not supported.</li>
+          <li>Backing up a database with <codeph>gpbackup</codeph> while simultaneously running DDL
+            commands might cause <codeph>gpbackup</codeph> to fail, in order to ensure consistency
+            within the backup set. For example, if a table is dropped after the start of the backup
+            operation, <codeph>gpbackup</codeph> exits and displays the error message <codeph>ERROR:
+              relation &lt;<varname>schema.table</varname>> does not
+                exist</codeph>.<p><codeph>gpbackup</codeph> might fail when a table is dropped
+              during a backup operation due to table locking issues. <codeph>gpbackup</codeph>
+              generates a list of tables to back up and acquires an <codeph>ACCESS SHARED</codeph>
+              lock on the tables. If an <codeph>EXCLUSIVE LOCK</codeph> is held on a table,
+                <codeph>gpbackup</codeph> acquires the <codeph>ACCESS SHARED</codeph> lock after the
+              existing lock is released. If the table no longer exists when
+                <codeph>gpbackup</codeph> attempts to acquire a lock on the table,
+                <codeph>gpbackup</codeph> exits with the error message. </p><p>For tables that might
+              be dropped during a backup, you can exclude the tables from a backup with a
+                <codeph>gpbackup</codeph> table filtering option such as
+                <codeph>--exclude-table</codeph> or <codeph>--exclude-schema</codeph>.</p></li>
         </ul></p>
     </body>
   </topic>
@@ -281,6 +296,20 @@ Duration: 0:00:05
 
 Restore Status: Success</codeblock></section>
       <section>
+        <title>History File</title>
+        <p>When performing a backup operation, <codeph>gpbackup</codeph> appends backup information
+          in the gpbackup history file, <codeph>gpbackup_history.yaml</codeph>, in the Greenplum
+          Database master data directory. The file contains the backup timestamp, information about
+          the backup options, and backup set information for incremental backups. This file is not
+          backed up by <codeph>gpbackup</codeph>.</p>
+        <p><codeph>gpbackup</codeph> uses the information in the file to find a matching backup for
+          an incremental backup when you run <codeph>gpbackup</codeph> with the
+            <codeph>--incremental</codeph> option and do not specify the
+            <codeph>--from-timesamp</codeph> option to indicate the backup that you want to use as
+          the latest backup in the incremental backup set. For information about incremental
+          backups, see <xref href="backup-gpbackup-incremental.xml"/>.</p>
+      </section>
+      <section>
         <title>Return Codes</title>
         <p>One of these codes is returned after <codeph>gpbackup</codeph> or
             <codeph>gprestore</codeph> completes.<ul id="ul_hhb_sqp_n4">
@@ -392,10 +421,10 @@ public.sales_1_prt_dec17 </codeblock></p><p>Then
         generates one data file for each leaf
           partition:<codeblock>$ <b>gpbackup --dbname demo --include-table public.sales --leaf-partition-data</b></codeblock><p>When
           leaf partitions are backed up, the leaf partition data is backed up along with the
-          metadata for the entire partitioned table.</p><note>You cannot use the
-            <codeph>--exclude-table-file</codeph> option with
-          <codeph>--leaf-partition-data</codeph>. Although you can specify leaf partition names in a
-          file specified with <codeph>--exclude-table-file</codeph>, <codeph>gpbackup</codeph>
+          metadata for the entire partitioned table.</p>
+        <note>You cannot use the <codeph>--exclude-table-file</codeph> option with
+            <codeph>--leaf-partition-data</codeph>. Although you can specify leaf partition names in
+          a file specified with <codeph>--exclude-table-file</codeph>, <codeph>gpbackup</codeph>
           ignores the partition names.</note></section>
       <section>
         <title>Filtering with gprestore</title>
@@ -670,6 +699,15 @@ public.sales_1_prt_dec17 </codeblock></p><p>Then
                         <codeph>--metadata-only</codeph>, <codeph>--data-only</codeph>, and
                         <codeph>--with-stats</codeph>.</li>
                   </ul></entry>
+              </row>
+              <row>
+                <entry><filepath>gpbackup_history.yaml</filepath></entry>
+                <entry>Contains information about options that were used when creating a backup with
+                    <codeph>gpbackup</codeph>, and information about incremental backups.<p>Stored
+                    on the Greenplum Database master host in the Greenplum Database master data
+                    directory.</p><p>This file is not backed up by <codeph>gpbackup</codeph>.</p><p>
+                    For information about incremental backups, see <xref
+                      href="backup-gpbackup-incremental.xml"/>.</p></entry>
               </row>
             </tbody>
           </tgroup>

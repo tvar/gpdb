@@ -220,16 +220,19 @@ extern int SetSegnoForCompactionInsert(Relation rel, List *compacted_segno,
 		List *insertedSegmentFileList);
 extern List *assignPerRelSegno(List *all_rels);
 extern void UpdateMasterAosegTotals(Relation parentrel,
-									int segno, 
-									int64 tupcount,
+						int segno,
+						int64 tupcount,
+						int64 modcount_added);
+extern void UpdateMasterAosegTotalsFromSegments(Relation parentrel,
+									Snapshot appendOnlyMetaDataSnapshot, List *segmentNumList,
 									int64 modcount_added);
-extern void UpdateMasterAosegTotalsFromSegments(Relation parentrel, 
-		Snapshot appendOnlyMetaDataSnapshot, List *segmentNumList,
-		int64 modcount_added);
 extern bool AORelRemoveHashEntry(Oid relid);
 extern void AtCommit_AppendOnly(void);
 extern void AtAbort_AppendOnly(void);
 extern void AtEOXact_AppendOnly(void);
+
+extern void GpFetchEntryFromAppendOnlyHash(Oid relid, AORelHashEntry foundAoEntry);
+extern void GpRemoveEntryFromAppendOnlyHash(Oid relid);
 
 extern void ValidateAppendOnlyMetaDataSnapshot(
 	Snapshot *appendOnlyMetaDataSnapshot);

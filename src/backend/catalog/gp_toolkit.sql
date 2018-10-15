@@ -1031,6 +1031,12 @@ AS
                     FROM gp_toolkit.__gp_is_append_only
                     WHERE iaooid = pgc.oid AND iaotype = 't'
                 )
+                AND NOT EXISTS
+                (
+                    SELECT parrelid
+                    FROM pg_partition
+                    WHERE parrelid = pgc.oid
+                )
             )
             AS pgc
         LEFT OUTER JOIN
@@ -2065,6 +2071,24 @@ BEGIN
     RETURN;
 END;
 $$ LANGUAGE plpgsql;
+
+-- gp_toolkit.__gp_remove_ao_entry_from_cache
+--   Helper function to evict an entry from AppendOnlyHash cache that is
+--   suspected of not being correct (e.g. segment files having wrong states).
+--   This should only be used for troubleshooting purposes.
+CREATE OR REPLACE FUNCTION gp_toolkit.__gp_remove_ao_entry_from_cache(oid)
+RETURNS VOID
+AS '$libdir/gp_ao_co_diagnostics', 'gp_remove_ao_entry_from_cache'
+LANGUAGE C IMMUTABLE STRICT NO SQL;
+
+CREATE OR REPLACE FUNCTION gp_toolkit.__gp_get_ao_entry_from_cache(ao_oid oid,
+       OUT segno smallint, OUT total_tupcount bigint, OUT tuples_added bigint,
+       OUT inserting_transaction xid, OUT latest_committed_inserting_dxid xid,
+       OUT state smallint, OUT format_version smallint, OUT is_full boolean,
+       OUT aborted boolean)
+RETURNS SETOF RECORD
+AS '$libdir/gp_ao_co_diagnostics', 'gp_get_ao_entry_from_cache'
+LANGUAGE C IMMUTABLE STRICT NO SQL;
 
 -- Workfile views
 --------------------------------------------------------------------------------

@@ -351,9 +351,27 @@ apply_motion(PlannerInfo *root, Plan *plan, Query *query)
 					
 									if (equal(var1,new_var))
 									{
+										int i;
+
 										/* If it is, use it to partition the result table, to avoid
 										 * unnecessary redistibution of data */
 										Assert(targetPolicy->nattrs < MaxPolicyAttributeNumber);
+
+										/* check duplicate distribute key */
+										for (i = 0; i < targetPolicy->nattrs; i++)
+										{
+											if (targetPolicy->attrs[i] != n)
+												continue;
+
+											TargetEntry *target = get_tle_by_resno(plan->targetlist, n);
+
+											ereport(ERROR,
+													(errcode(ERRCODE_DUPLICATE_COLUMN),
+													 errmsg("duplicate DISTRIBUTED BY column '%s'",
+															target->resname ? target->resname : "???")));
+
+										}
+
 										targetPolicy->attrs[targetPolicy->nattrs++] = n;
 										found_expr = true;
 										break;
@@ -1297,7 +1315,19 @@ Motion *
 make_hashed_motion(Plan *lefttree,
 				   List *hashExpr, bool useExecutorVarFormat)
 {
-	Motion *motion;
+	Motion	   *motion;
+	ListCell   *lc;
+
+	/*
+	 * The expressions used as the distribution key must be "GPDB-hashable".
+	 * There's also an assertion for this in setrefs.c, but better to catch
+	 * these as early as possible.
+	 */
+	foreach(lc, hashExpr)
+	{
+		if (!isGreenplumDbHashable(exprType((Node *) lfirst(lc))))
+			elog(ERROR, "cannot use expression as distribution key, because it is not hashable");
+	}
 
 	motion = make_motion(lefttree, false,
 						 0, NULL, NULL, NULL, useExecutorVarFormat);
@@ -3120,7 +3150,7 @@ remove_subquery_in_RTEs(Node *node)
 			 * be shared by other objects in the tree.
 			 */
 			pfree(rte->subquery);
-			rte->subquery = makeNode(Query);
+			rte->subquery = NULL;
         }
 
         return;

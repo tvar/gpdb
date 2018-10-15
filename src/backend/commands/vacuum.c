@@ -44,6 +44,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_namespace.h"
 #include "commands/dbcommands.h"
+#include "commands/analyzeutils.h"
 #include "commands/tablecmds.h"
 #include "commands/vacuum.h"
 #include "cdb/cdbdisp_query.h"
@@ -58,6 +59,7 @@
 #include "lib/stringinfo.h"
 #include "libpq/pqformat.h"             /* pq_beginmessage() etc. */
 #include "miscadmin.h"
+#include "parser/parse_relation.h"
 #include "postmaster/autovacuum.h"
 #include "storage/freespace.h"
 #include "storage/proc.h"
@@ -1303,8 +1305,6 @@ vacuumStatement_Relation(VacuumStmt *vacstmt, Oid relid,
 
 		if (vacstmt->full)
 			lmode = AccessExclusiveLock;
-		else if (RelationIsAoRows(onerel) || RelationIsAoCols(onerel))
-			lmode = AccessShareLock;
 		else
 			lmode = ShareUpdateExclusiveLock;
 
@@ -1521,6 +1521,45 @@ get_rel_oids(List *relids, VacuumStmt *vacstmt, bool isVacuum)
 					}
 				}
 				oid_list = lappend_oid(oid_list, relationOid); /* root partition */
+			}
+			else if (ps == PART_STATUS_LEAF)
+			{
+				Oid root_rel_oid = rel_partition_get_master(relationOid);
+				oid_list = list_make1_oid(relationOid);
+
+				List *va_root_attnums = NIL;
+				if (vacstmt->va_cols != NIL)
+				{
+					ListCell *lc;
+					int i;
+					foreach(lc, vacstmt->va_cols)
+					{
+						char	   *col = strVal(lfirst(lc));
+
+						i = get_attnum(root_rel_oid, col);
+						if (i == InvalidAttrNumber)
+							ereport(ERROR,
+									(errcode(ERRCODE_UNDEFINED_COLUMN),
+									 errmsg("column \"%s\" of relation \"%s\" does not exist",
+											col, get_rel_name(root_rel_oid))));
+						va_root_attnums = lappend_int(va_root_attnums, i);
+					}
+				}
+				else
+				{
+					Relation onerel = RelationIdGetRelation(root_rel_oid);
+					int attr_cnt = onerel->rd_att->natts;
+					for (int i = 1; i <= attr_cnt; i++)
+					{
+						Form_pg_attribute attr = onerel->rd_att->attrs[i-1];
+						if (attr->attisdropped)
+							continue;
+						va_root_attnums = lappend_int(va_root_attnums, i);
+					}
+					RelationClose(onerel);
+				}
+				if(leaf_parts_analyzed(root_rel_oid, relationOid, va_root_attnums))
+					oid_list = lappend_oid(oid_list, root_rel_oid);
 			}
 			else if (ps == PART_STATUS_INTERIOR) /* analyze an interior partition directly */
 			{
@@ -5415,37 +5454,6 @@ open_relation_and_check_permission(VacuumStmt *vacstmt,
 	bool dontWait = false;
 
 	/*
-	 * If this is a drop transaction and there is another parallel drop transaction
-	 * (on any relation) active. We drop out there. The other drop transaction
-	 * might be on the same relation and that would be upgrade deadlock.
-	 *
-	 * Note: By the time we would have reached try_relation_open the other
-	 * drop transaction might already be completed, but we don't take that
-	 * risk here.
-	 *
-	 * My marking the drop transaction as busy before checking, the worst
-	 * thing that can happen is that both transaction see each other and
-	 * both cancel the drop.
-	 *
-	 * The upgrade deadlock is not applicable to vacuum full because
-	 * it begins with an AccessExclusive lock and doesn't need to
-	 * upgrade it.
-	 */
-
-	if (isDropTransaction && !vacstmt->full)
-	{
-		MyProc->inDropTransaction = true;
-		SIMPLE_FAULT_INJECTOR(VacuumRelationOpenRelationDuringDropPhase);
-		if (HasDropTransaction(false))
-		{
-			elogif(Debug_appendonly_print_compaction, LOG,
-					"Skip drop because of concurrent drop transaction");
-
-			return NULL;
-		}
-	}
-
-	/*
 	 * Determine the type of lock we want --- hard exclusive lock for a FULL
 	 * vacuum, but just ShareUpdateExclusiveLock for concurrent vacuum. Either
 	 * way, we can be sure that no other backend is vacuuming the same table.
@@ -5453,8 +5461,22 @@ open_relation_and_check_permission(VacuumStmt *vacstmt,
 	 */
 	if (isDropTransaction)
 	{
+		/*
+		 * Upgrade to AccessExclusiveLock from SharedAccessExclusive here
+		 * before doing the drops. We set the dontwait flag here to prevent
+		 * deadlock scenarios such as a concurrent transaction holding
+		 * AccessShareLock and then upgrading to ExclusiveLock to run
+		 * DELETE/UPDATE while VACUUM is waiting here for AccessExclusiveLock.
+		 *
+		 * Skipping when we are not able to upgrade to AccessExclusivelock can
+		 * be an issue though because it is possible to accumulate a large
+		 * amount of segfiles marked AOSEG_STATE_AWAITING_DROP.  However, we do
+		 * not expect this to happen too frequently such that all segfiles are
+		 * marked.
+		 */
 		lmode = AccessExclusiveLock;
 		dontWait = true;
+		SIMPLE_FAULT_INJECTOR(VacuumRelationOpenRelationDuringDropPhase);
 	}
 	else if (!vacstmt->vacuum)
 		lmode = ShareUpdateExclusiveLock;
@@ -5470,7 +5492,12 @@ open_relation_and_check_permission(VacuumStmt *vacstmt,
 	onerel = try_relation_open(relid, lmode, dontWait);
 
 	if (!RelationIsValid(onerel))
+	{
+		elogif(Debug_appendonly_print_compaction && isDropTransaction, LOG,
+				"drop phase skipped for relation %d because we are unable to upgrade to AccessExclusiveLock",
+				relid);
 		return NULL;
+	}
 
 	/*
 	 * Check permissions.

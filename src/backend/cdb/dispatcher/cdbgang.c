@@ -20,6 +20,7 @@
 
 #include "libpq-fe.h"
 #include "miscadmin.h"			/* MyDatabaseId */
+#include "pgstat.h"			/* pgstat_report_sessionid() */
 #include "storage/proc.h"		/* MyProc */
 #include "storage/ipc.h"
 #include "utils/memutils.h"
@@ -1180,6 +1181,13 @@ void DisconnectAndDestroyAllGangs(bool resetSession)
 
 	ELOG_DISPATCHER_DEBUG("DisconnectAndDestroyAllGangs");
 
+	/* Destroy CurrentGangCreating before GangContext is reset */
+	if (CurrentGangCreating != NULL)
+	{
+		DisconnectAndDestroyGang(CurrentGangCreating);
+		CurrentGangCreating = NULL;
+	}
+
 	/* for now, destroy all readers, regardless of the portal that owns them */
 	disconnectAndDestroyAllReaderGangs(true);
 
@@ -1484,6 +1492,8 @@ void freeGangsForPortal(char *portal_name)
 	if (CurrentGangCreating != NULL)
 	{
 		GangType type = CurrentGangCreating->type;
+		Assert(type >= GANGTYPE_UNALLOCATED &&
+			   type <= GANGTYPE_PRIMARY_WRITER);
 		DisconnectAndDestroyGang(CurrentGangCreating);
 		CurrentGangCreating = NULL;
 
@@ -1627,6 +1637,7 @@ void CheckForResetSession(void)
 
 	gp_session_id = newSessionId;
 	gp_command_count = 0;
+	pgstat_report_sessionid(newSessionId);
 
 	/* Update the slotid for our singleton reader. */
 	if (SharedLocalSnapshotSlot != NULL)

@@ -178,6 +178,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	PlannerConfig *config;
 	instr_time		starttime;
 	instr_time		endtime;
+	MemoryAccountIdType curMemoryAccountId;
 
 	/*
 	 * Use ORCA only if it is enabled and we are in a master QD process.
@@ -197,7 +198,9 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		if (gp_log_optimization_time)
 			INSTR_TIME_SET_CURRENT(starttime);
 
-		START_MEMORY_ACCOUNT(MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Optimizer));
+		curMemoryAccountId = MemoryAccounting_GetOrCreateOptimizerAccount();
+
+		START_MEMORY_ACCOUNT(curMemoryAccountId);
 		{
 			result = optimize_query(parse, boundParams);
 		}
@@ -221,11 +224,12 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (gp_log_optimization_time)
 		INSTR_TIME_SET_CURRENT(starttime);
 
+	curMemoryAccountId = MemoryAccounting_GetOrCreatePlannerAccount();
 	/*
 	 * Incorrectly indented on purpose to avoid re-indenting an entire upstream
 	 * function
 	 */
-	START_MEMORY_ACCOUNT(MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Planner));
+	START_MEMORY_ACCOUNT(curMemoryAccountId);
 	{
 
 	/* Cursor options may come from caller or from DECLARE CURSOR stmt */
@@ -1277,6 +1281,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	double		dNumGroups = 0;
 	double		numDistinct = 1;
 	List	   *distinctExprs = NIL;
+	List	   *distinct_dist_keys = NIL;
+	List	   *distinct_dist_exprs = NIL;
 
 	double		motion_cost_per_row =
 	(gp_motion_cost_per_row > 0.0) ?
@@ -1950,6 +1956,12 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	 */
 	if (parse->distinctClause != NULL)
 	{
+		make_distribution_keys_for_groupclause(root,
+											   parse->distinctClause,
+											   result_plan->targetlist,
+											   &distinct_dist_keys,
+											   &distinct_dist_exprs);
+
 		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 												result_plan->targetlist);
 		numDistinct = estimate_num_groups(root, distinctExprs,
@@ -1962,9 +1974,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		if (Gp_role == GP_ROLE_DISPATCH && CdbPathLocus_IsPartitioned(current_locus))
 		{
-			List	   *distinct_pathkeys = make_pathkeys_for_sortclauses(root, parse->distinctClause,
-											  result_plan->targetlist, true);
-			bool		needMotion = !cdbpathlocus_collocates(root, current_locus, distinct_pathkeys, false /* exact_match */ );
+			bool		needMotion;
+
+			needMotion = !cdbpathlocus_collocates(root, current_locus,
+												  distinct_dist_keys, false /* exact_match */ );
 
 			/* Apply the preunique optimization, if enabled and worthwhile. */
 			if (root->config->gp_enable_preunique && needMotion)
@@ -2030,10 +2043,16 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 			if (needMotion)
 			{
-				result_plan = (Plan *) make_motion_hash(root, result_plan, distinctExprs);
+				if (distinct_dist_exprs)
+				{
+					result_plan = (Plan *) make_motion_hash(root, result_plan, distinct_dist_exprs);
+					current_pathkeys = NIL;		/* Any pre-existing order now lost. */
+				}
+				else
+				{
+					result_plan = (Plan *) make_motion_gather(result_plan, -1, true);
+				}
 				result_plan->total_cost += motion_cost_per_row * result_plan->plan_rows;
-				current_pathkeys = NULL;		/* Any pre-existing order now
-												 * lost. */
 			}
 		}
 		else if ( result_plan->flow->flotype == FLOW_SINGLETON )

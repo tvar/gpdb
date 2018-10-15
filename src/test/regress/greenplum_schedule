@@ -17,9 +17,9 @@
 
 test: gp_metadata variadic_parameters default_parameters function_extensions spi gp_xml pgoptions shared_scan
 
-test: leastsquares opr_sanity_gp decode_expr bitmapscan bitmapscan_ao case_gp limit_gp notin percentile join_gp union_gp gpcopy gp_create_table gp_create_view
-test: filter gpctas gpdist matrix toast sublink table_functions olap_setup complex opclass_ddl information_schema guc_env_var guc_gp gp_explain
-test: bitmap_index gp_dump_query_oids analyze gp_owner_permission
+test: leastsquares opr_sanity_gp decode_expr bitmapscan bitmapscan_ao case_gp limit_gp notin percentile join_gp union_gp gpcopy gp_create_table gp_create_view resource_queue_with_rule
+test: filter gpctas gpdist matrix toast sublink table_functions olap_setup complex opclass_ddl information_schema guc_env_var guc_gp gp_explain distributed_transactions
+test: bitmap_index gp_dump_query_oids analyze gp_owner_permission incremental_analyze
 test: indexjoin as_alias regex_gp gpparams with_clause transient_types gp_rules
 # dispatch should always run seperately from other cases.
 test: dispatch
@@ -54,11 +54,17 @@ test: query_finish_pending
 
 test: gpdiffcheck gptokencheck gp_hashagg sequence_gp tidscan co_nestloop_idxscan dml_in_udf
 
-test: rangefuncs_cdb gp_dqa subselect_gp subselect_gp2 distributed_transactions olap_group olap_window_seq sirv_functions appendonly alter_distpol_dropped query_finish
+# The test must be run by itself as it injects a fault on QE to fail
+# at the 2nd phase of 2PC.
+test: dtm_retry
+
+# The appendonly test cannot be run concurrently with tests that have
+# serializable transactions (may conflict with AO vacuum operations).
+test: rangefuncs_cdb gp_dqa subselect_gp subselect_gp2 olap_group olap_window_seq sirv_functions appendonly alter_distpol_dropped query_finish
 
 # 'partition' runs for a long time, so try to keep it together with other
 # long-running tests.
-test: partition partition1 partition_indexing parruleord
+test: partition partition1 partition_indexing parruleord partition_with_user_defined_function
 # 'partition_locking' gets confused if other backends run concurrently and
 # hold locks.
 test: partition_locking
@@ -199,6 +205,7 @@ test: vacuum_full_heap_bitmapindex
 test: ao_checksum_corruption AOCO_Compression2 table_statistics
 test: metadata_track
 test: workfile_mgr_test
+test: session_reset
 
 test: psql_gp_commands pg_resetxlog
 

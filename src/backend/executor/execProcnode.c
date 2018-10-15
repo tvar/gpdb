@@ -161,6 +161,54 @@ static CdbVisitOpt planstate_walk_kids(PlanState *planstate,
 					int flags);
 
 /*
+ * saveExecutorMemoryAccount saves an operator specific memory account
+ * into the PlanState of that operator
+ */
+static inline void
+saveExecutorMemoryAccount(PlanState *execState,
+						  MemoryAccountIdType curMemoryAccountId)
+{
+	Assert(curMemoryAccountId != MEMORY_OWNER_TYPE_Undefined);
+	Assert(MEMORY_OWNER_TYPE_Undefined == execState->memoryAccountId);
+	execState->memoryAccountId = curMemoryAccountId;
+}
+
+
+/*
+ * CREATE_EXECUTOR_MEMORY_ACCOUNT is a convenience macro to create a new
+ * operator specific memory account *if* the operator will be executed in
+ * the current slice, i.e., it is not part of some other slice (alien
+ * plan node). We assign a shared AlienExecutorMemoryAccount for plan nodes
+ * that will not be executed in current slice
+ *
+ * If the operator is a child of an 'X_NestedExecutor' account, the operator
+ * is also assigned to the 'X_NestedExecutor' account, unless the
+ * explain_memory_verbosity guc is set to 'debug' or above.
+ */
+#define CREATE_EXECUTOR_MEMORY_ACCOUNT(isAlienPlanNode, planNode, NodeType)    \
+	MemoryAccounting_CreateExecutorAccountWithType(                            \
+		(isAlienPlanNode), (planNode), MEMORY_OWNER_TYPE_Exec_##NodeType)
+
+static inline MemoryAccountIdType
+MemoryAccounting_CreateExecutorAccountWithType(bool isAlienPlanNode,
+											   Plan *node,
+											   MemoryOwnerType ownerType)
+{
+	if (isAlienPlanNode)
+		return MEMORY_OWNER_TYPE_Exec_AlienShared;
+	else
+		if (MemoryAccounting_IsUnderNestedExecutor() &&
+			explain_memory_verbosity < EXPLAIN_MEMORY_VERBOSITY_DEBUG)
+			return MemoryAccounting_GetOrCreateNestedExecutorAccount();
+		else
+		{
+			long maxLimit =
+				node->operatorMemKB == 0 ? work_mem : node->operatorMemKB;
+			return MemoryAccounting_CreateAccount(maxLimit, ownerType);
+		}
+}
+
+/*
  * setSubplanSliceId
  *	 Set the slice id info for the given subplan.
  */
@@ -220,7 +268,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 	int			origSliceIdInPlan = estate->currentSliceIdInPlan;
 	int			origExecutingSliceId = estate->currentExecutingSliceId;
 
-	MemoryAccountIdType curMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;
+	MemoryAccountIdType curMemoryAccountId;
 
 	int localMotionId = LocallyExecutingSliceIndex(estate);
 
@@ -775,7 +823,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 
 	if (result != NULL)
 	{
-		SAVE_EXECUTOR_MEMORY_ACCOUNT(result, curMemoryAccountId);
+		saveExecutorMemoryAccount(result, curMemoryAccountId);
 	}
 	return result;
 }
@@ -834,7 +882,7 @@ ExecProcNode(PlanState *node)
 {
 	TupleTableSlot *result = NULL;
 
-	START_MEMORY_ACCOUNT(node->plan->memoryAccountId);
+	START_MEMORY_ACCOUNT(node->memoryAccountId);
 	{
 
 	CHECK_FOR_INTERRUPTS();
@@ -1112,7 +1160,7 @@ MultiExecProcNode(PlanState *node)
 
 	Assert(NULL != node->plan);
 
-	START_MEMORY_ACCOUNT(node->plan->memoryAccountId);
+	START_MEMORY_ACCOUNT(node->memoryAccountId);
 {
 	PG_TRACE4(execprocnode__enter, Gp_segment, currentSliceId, nodeTag(node), node->plan->plan_node_id);
 

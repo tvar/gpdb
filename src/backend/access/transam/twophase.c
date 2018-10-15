@@ -585,7 +585,6 @@ MarkAsPreparing(TransactionId xid,
 	gxact->proc.inCommit = false;
 	gxact->proc.vacuumFlags = 0;
 	gxact->proc.serializableIsoLevel = false;
-	gxact->proc.inDropTransaction = false;
 	gxact->proc.lwWaiting = false;
 	gxact->proc.lwExclusive = false;
 	gxact->proc.lwWaitLink = NULL;
@@ -1452,6 +1451,8 @@ FinishPreparedTransaction(const char *gid, bool isCommit, bool raiseErrorIfNotFo
 	int			prepareAppendOnlyIntentCount;
     XLogRecPtr   tfXLogRecPtr;
     XLogRecord  *tfRecord  = NULL;
+
+	SIMPLE_FAULT_INJECTOR(FinishPreparedStartOfFunction);
 
 	/*
 	 * Validate the GID, and lock the GXACT to ensure that two backends do not

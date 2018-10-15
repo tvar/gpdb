@@ -1,3 +1,6 @@
+# this case contains fault injection, must be put in a separate test group
+test: terminate_in_gang_creation
+
 test: pt_io_in_progress_deadlock
 test: pg_terminate_backend
 test: deadlock_under_entry_db_singleton
@@ -7,11 +10,13 @@ test: pg_views_concurrent_drop
 test: resource_queue
 test: alter_blocks_for_update_and_viceversa
 test: reader_waits_for_lock
-test: drop_rename
+test: drop_rename concurrent_schema_drop
 test: instr_in_shmem_setup
 test: instr_in_shmem_terminate
 test: instr_in_shmem_cleanup
 test: vacuum_full_recently_dead_tuple_due_to_distributed_snapshot
+test: resync_xlog_hints
+test: invalidated_toast_index
 
 test: setup
 # Tests on Append-Optimized tables (row-oriented).
@@ -60,6 +65,8 @@ test: uao/vacuum_self_serializable3_row
 test: uao/vacuum_while_insert_row
 test: uao/vacuum_while_vacuum_row
 test: uao/vacuum_cleanup_row
+test: uao/insert_should_not_use_awaiting_drop_row
+test: reorganize_after_ao_vacuum_skip_drop truncate_after_ao_vacuum_skip_drop
 
 # Tests on Append-Optimized tables (column-oriented).
 test: uao/alter_while_vacuum_column
@@ -107,6 +114,7 @@ test: uao/vacuum_self_serializable3_column
 test: uao/vacuum_while_insert_column
 test: uao/vacuum_while_vacuum_column
 test: uao/vacuum_cleanup_column
+test: uao/insert_should_not_use_awaiting_drop_column
 test: add_column_after_vacuum_skip_drop_column
 test: vacuum_after_vacuum_skip_drop_column
 

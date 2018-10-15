@@ -299,9 +299,10 @@ getPartitionIndexNode(Oid rootOid,
 	SysScanDesc sscan;
 	Relation	partRel;
 	Relation	partRuleRel;
-	Form_pg_partition partDesc;
 	Oid		parOid;
 	bool 		inctemplate = false;
+	Oid			parrelid;
+	int			parlevel;
 
 	if (Gp_role != GP_ROLE_DISPATCH)
 		return;
@@ -331,10 +332,13 @@ getPartitionIndexNode(Oid rootOid,
 	sscan = systable_beginscan(partRel, PartitionParrelidParlevelParistemplateIndexId, true,
 							   SnapshotNow, 3, scankey);
 	tuple = systable_getnext(sscan);
+
 	if (HeapTupleIsValid(tuple))
 	{
 		parOid = HeapTupleGetOid(tuple);
-		partDesc = (Form_pg_partition) GETSTRUCT(tuple);
+		Form_pg_partition partDesc = (Form_pg_partition) GETSTRUCT(tuple);
+		parrelid = partDesc->parrelid;
+		parlevel = partDesc->parlevel;
 
 		if (level == 0)
 		{
@@ -344,7 +348,7 @@ getPartitionIndexNode(Oid rootOid,
 			/* handle root part specially */
 			*n = palloc0(sizeof(PartitionIndexNode));
 			(*n)->paroid = parOid;
-			(*n)->parrelid = (*n)->parchildrelid = partDesc->parrelid;
+			(*n)->parrelid = (*n)->parchildrelid = parrelid;
 			(*n)->isDefault = false;
 		}
 		systable_endscan(sscan);
@@ -379,7 +383,7 @@ getPartitionIndexNode(Oid rootOid,
 		child = palloc(sizeof(PartitionIndexNode));
 		memset(child, 0, sizeof(PartitionIndexNode));
 		child->paroid = HeapTupleGetOid(tuple);
-		child->parrelid = partDesc->parrelid;
+		child->parrelid = parrelid;
 		child->parchildrelid = rule_desc->parchildrelid;
 
 		/* For every node, we keep track of every level at which this node has default partitioning */
@@ -390,7 +394,7 @@ getPartitionIndexNode(Oid rootOid,
 		if (rule_desc->parisdefault)
 		{
 			child->isDefault = true;
-			child->defaultLevels = lappend_int(child->defaultLevels, partDesc->parlevel);
+			child->defaultLevels = lappend_int(child->defaultLevels, parlevel);
 		}
 
 		/* insert child into children */
@@ -414,7 +418,6 @@ getPartitionIndexNode(Oid rootOid,
 static char *
 constructIndexHashKey(Oid partOid,
 			Oid rootOid,
-			HeapTuple tup,
 			AttrNumber *attMap,
 			IndexInfo *ii,
 			LogicalIndexType indType)
@@ -557,8 +560,6 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 
 	char relstorage = partRel->rd_rel->relstorage;
 
-	heap_close(partRel, AccessShareLock);
-
 	/* fetch each index on part */
 	indexoidlist = RelationGetIndexList(partRel);
 	foreach(lc, indexoidlist)
@@ -573,15 +574,17 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 		 */
 		indRel = index_open(indexoid, NoLock);
 
-		/* for AO and AOCO tables we assume the index is bitmap, for heap partitions
-		 * look up the access method from the catalog
-		 */
-		if (RELSTORAGE_HEAP == relstorage)
+		if (GIST_AM_OID == indRel->rd_rel->relam)
 		{
-			if (BTREE_AM_OID == indRel->rd_rel->relam)
-			{
-				indType = INDTYPE_BTREE;
-			}
+			indType = INDTYPE_GIST;
+		}
+		else if (RELSTORAGE_HEAP == relstorage && BTREE_AM_OID == indRel->rd_rel->relam)
+		{
+			/*
+			 * we only send btree indexes as type btree if it is a normal heap table,
+			 * AO and AOCO tables with btree indexes are sent as type bitmap
+			 */
+			indType = INDTYPE_BTREE;
 		}
 
 		/* 
@@ -590,7 +593,6 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 		 */
 		if (!attmap)
 		{
-			Relation partRel = heap_open(partOid, AccessShareLock);
 			Relation rootRel = heap_open(rootOid, AccessShareLock);
 
 			TupleDesc rootTupDesc = rootRel->rd_att;
@@ -599,7 +601,6 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 			attmap = varattnos_map(partTupDesc, rootTupDesc);
 			
 			/* can we close here ? */
-			heap_close(partRel, AccessShareLock);
 			heap_close(rootRel, AccessShareLock);
 		}
 
@@ -609,7 +610,7 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 		index_close(indRel, NoLock);
 
 		/* construct hash key for the index */
-		partIndexHashKey = constructIndexHashKey(partOid, rootOid, indRel->rd_indextuple, attmap, ii, indType);
+		partIndexHashKey = constructIndexHashKey(partOid, rootOid, attmap, ii, indType);
 
 		/* lookup PartitionIndexHash table */
 		partIndexHashEntry = (PartitionIndexHashEntry *)hash_search(PartitionIndexHash,
@@ -666,6 +667,8 @@ recordIndexesOnLeafPart(PartitionIndexNode **pNodePtr,
 		/* update the PartitionIndexNode -> index bitmap */
 		pNode->index = bms_add_member(pNode->index, partIndexHashEntry->logicalIndexId);
 	}
+
+	heap_close(partRel, AccessShareLock);
 }
 
 /*
@@ -1491,12 +1494,13 @@ logicalIndexInfoForIndexOid(Oid rootOid, Oid indexOid)
 	}
 	
 	plogicalIndexInfo->indType = INDTYPE_BITMAP;
-	if (RELSTORAGE_HEAP == relstorage)
+	if (GIST_AM_OID == indRel->rd_rel->relam)
 	{
-		if (BTREE_AM_OID == indRel->rd_rel->relam)
-		{
-			plogicalIndexInfo->indType = INDTYPE_BTREE;
-		}
+		plogicalIndexInfo->indType = INDTYPE_GIST;
+	}
+	else if (RELSTORAGE_HEAP == relstorage && BTREE_AM_OID == indRel->rd_rel->relam)
+	{
+		plogicalIndexInfo->indType = INDTYPE_BTREE;
 	}
 
 	index_close(indRel, AccessShareLock);

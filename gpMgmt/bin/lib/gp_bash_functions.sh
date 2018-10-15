@@ -357,7 +357,6 @@ RETRY () {
 
 SED_PG_CONF () {
 	LOG_MSG "[INFO]:-Start Function $FUNCNAME"
-	SED_TMP_FILE=/tmp/sed_text.$$
 	APPEND=0
 	FILENAME=$1;shift
 	SEARCH_TXT=$1;shift
@@ -421,30 +420,26 @@ SED_PG_CONF () {
 			fi
 		else
 			if [ $KEEP_PREV -eq 0 ];then
-				$ECHO "s/${SEARCH_TXT}/${SUB_TXT} #${SEARCH_TXT}/" > $SED_TMP_FILE
+				SED_COMMAND="s/${SEARCH_TXT}/${SUB_TXT} #${SEARCH_TXT}/"
 			else
-				$ECHO "s/${SEARCH_TXT}.*/${SUB_TXT}/" > $SED_TMP_FILE
+				SED_COMMAND="s/${SEARCH_TXT}.*/${SUB_TXT}/"
 			fi
-			$CAT $SED_TMP_FILE | $TRUSTED_SHELL ${SED_HOST} $DD of=$SED_TMP_FILE > /dev/null 2>&1
-			$TRUSTED_SHELL $SED_HOST "sed -i'.bak1' -f $SED_TMP_FILE $FILENAME" > /dev/null 2>&1
+			$TRUSTED_SHELL $SED_HOST sed -i'.bak1' -f /dev/stdin "$FILENAME" <<< "$SED_COMMAND" > /dev/null 2>&1
 			if [ $RETVAL -ne 0 ]; then
 				ERROR_EXIT "[FATAL]:-Failed to insert $SUB_TXT in $FILENAME on $SED_HOST" 2
 			else
 				LOG_MSG "[INFO]:-Replaced line in $FILENAME on $SED_HOST"
 				$TRUSTED_SHELL $SED_HOST "$RM -f ${FILENAME}.bak1" > /dev/null 2>&1
 			fi
-			$ECHO "s/^#${SEARCH_TXT}/${SEARCH_TXT}/" > $SED_TMP_FILE
-			$CAT $SED_TMP_FILE | $TRUSTED_SHELL ${SED_HOST} $DD of=$SED_TMP_FILE > /dev/null 2>&1
-			$TRUSTED_SHELL $SED_HOST "sed -i'.bak2' -f $SED_TMP_FILE $FILENAME" > /dev/null 2>&1
+
+			SED_COMMAND="s/^#${SEARCH_TXT}/${SEARCH_TXT}/"
+			$TRUSTED_SHELL $SED_HOST sed -i'.bak2' -f /dev/stdin "$FILENAME" <<< "$SED_COMMAND" > /dev/null 2>&1
 			if [ $RETVAL -ne 0 ]; then
 				ERROR_EXIT "[FATAL]:-Failed to substitute #${SEARCH_TXT} in $FILENAME on $SED_HOST" 2
 			else
 				LOG_MSG "[INFO]:-Replaced line in $FILENAME on $SED_HOST"
 				$TRUSTED_SHELL $SED_HOST "$RM -f ${FILENAME}.bak2" > /dev/null 2>&1
 			fi
-			$TRUSTED_SHELL $SED_HOST "$RM -f $SED_TMP_FILE"
-
-			$RM -f $SED_TMP_FILE
 		fi
 
 		trap - ERR DEBUG # Disable trap
@@ -788,8 +783,9 @@ GET_CIDRADDR () {
 
 BUILD_MASTER_PG_HBA_FILE () {
         LOG_MSG "[INFO]:-Start Function $FUNCNAME"
-	if [ $# -eq 0 ];then ERROR_EXIT "[FATAL]:-Passed zero parameters, expected at least 1" 2;fi
+	if [ $# -eq 0 ];then ERROR_EXIT "[FATAL]:-Passed zero parameters, expected at least 2" 2;fi
 	GP_DIR=$1
+	HBA_HOSTNAMES=${2:-0}
         LOG_MSG "[INFO]:-Clearing values in Master $PG_HBA"
         $GREP "^#" ${GP_DIR}/$PG_HBA > $TMP_PG_HBA
         $MV $TMP_PG_HBA ${GP_DIR}/$PG_HBA
@@ -797,27 +793,35 @@ BUILD_MASTER_PG_HBA_FILE () {
         $ECHO "local    all         $USER_NAME         $PG_METHOD" >> ${GP_DIR}/$PG_HBA
         #$ECHO "local    all         all                $PG_METHOD" >> ${GP_DIR}/$PG_HBA
         LOG_MSG "[INFO]:-Setting local host access"
-        $ECHO "host     all         $USER_NAME         127.0.0.1/28    trust" >> ${GP_DIR}/$PG_HBA
-        for ADDR in "${MASTER_IP_ADDRESS_ALL[@]}"
-        do
-        	# MPP-15889
-        	CIDRADDR=$(GET_CIDRADDR $ADDR)
-        	$ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
-        done
-        for ADDR in "${STANDBY_IP_ADDRESS_ALL[@]}"
-        do
-        	# MPP-15889
-        	CIDRADDR=$(GET_CIDRADDR $ADDR)
-        	$ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
-        done
+        if [ $HBA_HOSTNAMES -eq 0 ];then
+            $ECHO "host     all         $USER_NAME         127.0.0.1/28    trust" >> ${GP_DIR}/$PG_HBA
 
-        # Add all local IPV6 addresses
-        for ADDR in "${MASTER_IPV6_LOCAL_ADDRESS_ALL[@]}"
-        do
-        	# MPP-15889
-        	CIDRADDR=$(GET_CIDRADDR $ADDR)
-        	$ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
-        done
+            for ADDR in "${MASTER_IP_ADDRESS_ALL[@]}"
+            do
+                # MPP-15889
+                CIDRADDR=$(GET_CIDRADDR $ADDR)
+                $ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
+
+            done
+            for ADDR in "${STANDBY_IP_ADDRESS_ALL[@]}"
+            do
+                # MPP-15889
+                CIDRADDR=$(GET_CIDRADDR $ADDR)
+                $ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
+            done
+
+            # Add all local IPV6 addresses
+            for ADDR in "${MASTER_IPV6_LOCAL_ADDRESS_ALL[@]}"
+            do
+                # MPP-15889
+                CIDRADDR=$(GET_CIDRADDR $ADDR)
+                $ECHO "host     all         $USER_NAME         $CIDRADDR       trust" >> ${GP_DIR}/$PG_HBA
+            done
+        else
+            $ECHO "host     all         $USER_NAME         localhost    trust" >> ${GP_DIR}/$PG_HBA
+            $ECHO "host     all         $USER_NAME         $MASTER_HOSTNAME       trust" >> ${GP_DIR}/$PG_HBA
+        fi
+
 
         # Add replication config
         $ECHO "local    replication $USER_NAME         $PG_METHOD" >> ${GP_DIR}/$PG_HBA

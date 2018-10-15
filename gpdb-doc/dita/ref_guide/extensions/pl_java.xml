@@ -54,7 +54,7 @@
       <p>With the Greenplum Database PL/Java extension, you can write Java methods using your
         favorite Java IDE and install the JAR files that contain those methods into Greenplum
         Database. </p>
-      <p>Greenplum Database PL/Java package is based on the open source PL/Java 1.4.0. Greenplum
+      <p>Greenplum Database PL/Java package is based on the open source PL/Java 1.5.0. Greenplum
         Database PL/Java provides the following features.</p>
       <ul>
         <li id="pv161029">Ability to execute PL/Java functions with Java 1.7 or higher.</li>
@@ -82,7 +82,7 @@
       </ul>
       <p>A function in SQL will appoint a static method in a Java class. In order for the function
         to execute, the appointed class must available on the class path specified by the Greenplum
-        Database sever configuration parameter <codeph>pljava_classpath</codeph>. The PL/Java
+        Database server configuration parameter <codeph>pljava_classpath</codeph>. The PL/Java
         extension adds a set of functions that helps installing and maintaining the java classes.
         Classes are stored in normal Java archives, JAR files. A JAR file can optionally contain a
         deployment descriptor that in turn contains SQL commands to be executed when the JAR is
@@ -217,24 +217,24 @@
           <li id="pv160918">Install the software extension package by running the
               <codeph>gppkg</codeph> command. This example installs the PL/Java extension package on
             a Linux
-            system:<codeblock>$ gppkg -i pljava-ossv1.5.0_pv1.4.0-GPDB-<varname>version</varname>-orca-rhel6-x86_64.gppkg</codeblock></li>
-          <li>Ensure the environment variables <codeph>JAVA_HOME</codeph> and
+            system:<codeblock>$ gppkg -i pljava-1.4.3-gp5-rhel<varname>osversion</varname>-x86_64.gppkg</codeblock></li>
+          <li>Ensure that the environment variables <codeph>JAVA_HOME</codeph> and
               <codeph>LD_LIBRARY_PATH</codeph> are set properly in
               <codeph>$GPHOME/greenplum_path.sh</codeph> on all Greenplum Database hosts.<ul
               id="ul_mgq_wgh_qw">
               <li>Set the <codeph>JAVA_HOME</codeph> variable to the directory where your Java
                 Runtime is installed. For example, for Oracle JRE this directory would be
                   <codeph>/usr/java/latest</codeph>. For OpenJDK, the directory is
-                  <codeph>/usr/lib/jvm/jre</codeph>. This example changes the environment variable
+                  <codeph>/usr/lib/jvm</codeph>. This example changes the environment variable
                 to use
-                <codeph>/usr/java/latest</codeph>.<codeblock>JAVA_HOME=/usr/java/latest</codeblock></li>
-              <li>Set the <codeph>LD_LIBRARY_PATH</codeph> to include the directory with Java server
+                <codeph>/usr/lib/jvm</codeph>.<codeblock>JAVA_HOME=/usr/lib/jvm</codeblock></li>
+              <li>Set the <codeph>LD_LIBRARY_PATH</codeph> to include the directory with the Java server
                 runtime libraries. PL/Java depends on <codeph>libjvm.so</codeph> and the shared
                 object should be in your <codeph>LD_LIBRARY_PATH</codeph>. By default,
                   <codeph>libjvm.so</codeph> is available in
-                  <codeph>$JAVA_HOME/lib/amd64/server</codeph>. This example adds the directory to
+                  <codeph>$JAVA_HOME/jre/lib/amd64/server</codeph>. This example adds the directory to
                 the environment
-                variable.<codeblock>LD_LIBRARY_PATH=$GPHOME/lib:$GPHOME/ext/python/lib:<b>$JAVA_HOME/lib/amd64/server</b>:$LD_LIBRARY_PATH</codeblock></li>
+                variable.<codeblock>LD_LIBRARY_PATH=$GPHOME/lib:$GPHOME/ext/python/lib:<b>$JAVA_HOME/jre/lib/amd64/server</b>:$LD_LIBRARY_PATH</codeblock></li>
             </ul>This example <codeph>gpscp</codeph> command copies the file to all hosts specified
             in the file
             <codeph>gphosts_file</codeph>.<codeblock>$ gpscp -f gphosts_file $GPHOME/greenplum_path.sh 
@@ -283,9 +283,9 @@
           <li id="pv160641">Use the Greenplum <codeph>gppkg</codeph> utility with the
               <codeph>-r</codeph> option to uninstall the PL/Java extension. This example uninstalls
             the PL/Java extension on a Linux
-              system:<codeblock>$ gppkg -r pljava-ossv1.4.0_pv1.3_gpdb<varname>version</varname></codeblock><p>You
-              can run the <codeph>gppkg</codeph> utility with the options <codeph>-q --all</codeph>
-              to list the installed extensions and their versions.</p></li>
+              system:<codeblock>$ gppkg -r pljava-1.4.3</codeblock><p>You can run the
+                <codeph>gppkg</codeph> utility with the options <codeph>-q --all</codeph> to list
+              the installed extensions and their versions.</p></li>
           <li dir="ltr">Reload
             <codeph>greenplum_path.sh</codeph>.<codeblock dir="ltr">$ source $GPHOME/greenplum_path.sh</codeblock></li>
           <li id="pv158621">Restart the database.<codeblock>$ gpstop -r </codeblock></li>
@@ -1029,8 +1029,9 @@ select java_substring(a, 1, 5) from temp;</codeblock>
     <body>
       <p>The PL/Java Github wiki page - <xref href="https://github.com/tada/pljava/wiki"
           format="html" scope="external">https://github.com/tada/pljava/wiki</xref>.</p>
-      <p> PL/Java 1.4.0 release - <xref href="https://github.com/tada/pljava/tree/B1_4"
-          format="html" scope="external">https://github.com/tada/pljava/tree/B1_4</xref>.</p>
+      <p> PL/Java 1.5.0 release - <xref href="https://github.com/tada/pljava/tree/REL1_5_STABLE"
+          format="html" scope="external"
+        >https://github.com/tada/pljava/tree/REL1_5_STABLE</xref>.</p>
     </body>
   </topic>
 </topic>

@@ -2319,7 +2319,9 @@ exec_bind_message(StringInfo input_message)
 	 * functions might need it) or the query isn't a utility command (and
 	 * hence could require redoing parse analysis and planning).
 	 */
-	if (numParams > 0 || analyze_requires_snapshot(psrc->raw_parse_tree))
+	if (numParams > 0 ||
+		(psrc->raw_parse_tree &&
+		 analyze_requires_snapshot(psrc->raw_parse_tree)))
 	{
 		mySnapshot = CopySnapshot(GetTransactionSnapshot());
 		ActiveSnapshot = mySnapshot;
@@ -3350,7 +3352,6 @@ drop_unnamed_stmt(void)
 void
 quickdie(SIGNAL_ARGS)
 {
-	SIMPLE_FAULT_INJECTOR(QuickDie);
 	quickdie_impl();
 }
 

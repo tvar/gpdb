@@ -61,6 +61,26 @@ select distinct a from (select  'A' from (select distinct 'C' ) as bar union sel
 select distinct a from (select  distinct 'A' from (select distinct 'C' ) as bar union select distinct 'B') as foo(a);
 select distinct a from (select  distinct 'A' from (select 'C' from (select distinct 'D') as bar1 ) as bar union select distinct 'B') as foo(a);
 
+-- Test case where input to one branch of UNION resides on a single segment, and another on the QE.
+-- The external table resides on QD, and the LIMIT on the test1 table forces the plan to be focused
+-- on a single QE.
+--
+CREATE TABLE test1 (id int);
+insert into test1 values (1);
+CREATE EXTERNAL WEB TABLE test2 (id int) EXECUTE 'echo 2' ON MASTER FORMAT 'csv';
+
+(SELECT 'test1' as branch, id FROM test1 LIMIT 1)
+union
+(SELECT 'test2' as branch, id FROM test2);
+
+-- The plan you currently get for this has a Motion to move the data from the single QE to
+-- QD. That's a bit silly, it would probably make more sense to pull all the data to the QD
+-- in the first place, and execute the Limit in the QD, to avoid the extra Motion. But this
+-- is hopefully a pretty rare case.
+explain (SELECT 'test1' as branch, id FROM test1 LIMIT 1)
+union
+(SELECT 'test2' as branch, id FROM test2);
+
 --
 -- Setup
 --
@@ -156,7 +176,6 @@ order by 1;
 --
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
@@ -172,7 +191,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
@@ -188,7 +206,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
@@ -204,7 +221,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
@@ -280,7 +296,6 @@ order by 1;
 --
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
@@ -296,7 +311,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
@@ -312,7 +326,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
@@ -328,7 +341,6 @@ order by 1;'
 , 'APPEND');
 
 select count_operator('
-explain
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
@@ -403,21 +415,21 @@ select count_operator('(select * from T_a1) UNION ALL (select * from T_random) o
 
 select count_operator('(select * from T_b2) UNION ALL (select * from T_random) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
 UNION ALL SELECT 300, 300)
 (select a1 from T_a1) UNION ALL (select d1 from T_constant) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
 UNION ALL SELECT 300, 300)
 (select d1 from T_constant) UNION ALL (select a1 from T_a1) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION ALL SELECT 200, 200
@@ -490,21 +502,21 @@ select count_operator('(select * from T_a1) UNION (select * from T_random) order
 
 select count_operator('(select * from T_b2) UNION (select * from T_random) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
 UNION SELECT 300, 300)
 (select a1 from T_a1) UNION (select d1 from T_constant) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
 UNION SELECT 300, 300)
 (select d1 from T_constant) UNION (select a1 from T_a1) order by 1;', 'APPEND');
 
-select count_operator('explain
+select count_operator('
 with T_constant (d1, d2) as(
 SELECT 100, 100
 UNION SELECT 200, 200
@@ -516,6 +528,15 @@ SELECT 100, 100
 UNION SELECT 200, 200
 UNION SELECT 300, 300)
 (select d1 from T_constant) UNION (select c1 from T_random) order by 1;', 'APPEND');
+
+CREATE TABLE t1_setop(a int) DISTRIBUTED BY (a);
+CREATE TABLE t2_setop(a int) DISTRIBUTED BY (a);
+INSERT INTO t1_setop VALUES (1), (2), (3);
+INSERT INTO t2_setop VALUES (3), (4), (5);
+(SELECT a FROM t1_setop EXCEPT SELECT a FROM t2_setop ORDER BY a)
+UNION
+(SELECT a FROM t2_setop EXCEPT SELECT a FROM t1_setop ORDER BY a)
+ORDER BY a;
 
 --
 -- Clean up

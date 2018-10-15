@@ -1692,27 +1692,32 @@ _SPI_prepare_plan(const char *src, SPIPlanPtr plan, ParamListInfo boundParams)
 		CachedPlanSource *plansource;
 		CachedPlan *cplan;
 
-		/* Need a copyObject here to keep parser from modifying raw tree */
-		stmt_list = pg_analyze_and_rewrite(copyObject(parsetree),
-										   src, argtypes, nargs);
+		if (parsetree == NULL)
+			stmt_list = NIL;
+		else
 		{
-			ListCell *lc;
-
-			foreach (lc, stmt_list)
+			/* Need a copyObject here to keep parser from modifying raw tree */
+			stmt_list = pg_analyze_and_rewrite(copyObject(parsetree),
+											   src, argtypes, nargs);
 			{
-				Query *query = (Query *) lfirst(lc);
+				ListCell *lc;
 
-				if (Gp_role == GP_ROLE_EXECUTE)
+				foreach (lc, stmt_list)
 				{
-					/*
-					 * This method will error out if the query cannot be
-					 * safely executed on segment.
-					 */
-					querytree_safe_for_segment(query);
+					Query *query = (Query *) lfirst(lc);
+
+					if (Gp_role == GP_ROLE_EXECUTE)
+					{
+						/*
+						 * This method will error out if the query cannot be
+						 * safely executed on segment.
+						 */
+						querytree_safe_for_segment(query);
+					}
 				}
 			}
+			stmt_list = pg_plan_queries(stmt_list, cursor_options, NULL, false);
 		}
-		stmt_list = pg_plan_queries(stmt_list, cursor_options, NULL, false);
 
 		plansource = (CachedPlanSource *) palloc0(sizeof(CachedPlanSource));
 		cplan = (CachedPlan *) palloc0(sizeof(CachedPlan));
@@ -2104,7 +2109,6 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, long tcount)
 
 			/* 
 			 * Checking if we need to put this through resource queue.
-			 * Same as in pquery.c, except we check ActivePortal->releaseResLock.
 			 * If the Active portal already hold a lock on the queue, we cannot
 			 * acquire it again.
 			 */
@@ -2127,13 +2131,10 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, long tcount)
 				 */
 				if (ActivePortal)
 				{
-					if (!ActivePortal->releaseResLock)
+					if (!IsResQueueLockedForPortal(ActivePortal))
 					{
 						/** TODO: siva - can we ever reach this point? */
-						ActivePortal->status = PORTAL_QUEUE;
-					
-						ActivePortal->releaseResLock =
-							ResLockPortal(ActivePortal, queryDesc);
+						ResLockPortal(ActivePortal, queryDesc);
 						ActivePortal->status = PORTAL_ACTIVE;
 					} 
 				}

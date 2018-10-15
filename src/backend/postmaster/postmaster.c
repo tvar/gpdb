@@ -2954,7 +2954,19 @@ retry1:
 			break;
 	}
 
-	SIMPLE_FAULT_INJECTOR(ProcessStartupPacketFault);
+#ifdef FAULT_INJECTOR
+	if (FaultInjector_InjectFaultIfSet(ProcessStartupPacketFault,
+									   DDLNotSpecified,
+									   port->database_name /* databaseName */,
+									   "" /* tableName */) == FaultInjectorTypeSkip)
+	{
+		ereport(FATAL,
+				(errcode(ERRCODE_CANNOT_CONNECT_NOW),
+				 errSendAlert(true),
+				 errmsg(POSTMASTER_IN_RECOVERY_MSG),
+				 errdetail("dummy location")));
+	}
+#endif
 
 	return STATUS_OK;
 }
@@ -3282,8 +3294,9 @@ processTransitionRequest_faultInject(void * inputBuf, int *offsetPtr, int length
 	char *ddlStatement = readNextStringFromString(inputBuf, offsetPtr, length);
 	char *databaseName = readNextStringFromString(inputBuf, offsetPtr, length);
 	char *tableName = readNextStringFromString(inputBuf, offsetPtr, length);
-	int numOccurrences = readIntFromString(inputBuf, offsetPtr, length, &wasRead);
-	int sleepTimeSeconds = readIntFromString(inputBuf, offsetPtr, length, &wasRead);
+	int startOccurrence = readIntFromString(inputBuf, offsetPtr, length, &wasRead);
+	int endOccurrence = readIntFromString(inputBuf, offsetPtr, length, &wasRead);
+	int extraArg = readIntFromString(inputBuf, offsetPtr, length, &wasRead);
 	FaultInjectorEntry_s	faultInjectorEntry;
 
 	init_ps_display("filerep fault inject process", "", "", "");
@@ -3296,8 +3309,8 @@ processTransitionRequest_faultInject(void * inputBuf, int *offsetPtr, int length
 		goto exit;
 	}
 
-	elog(DEBUG1, "FAULT INJECTED: Name %s Type %s, DDL %s, DB %s, Table %s, NumOccurrences %d  SleepTime %d",
-		 faultName, type, ddlStatement, databaseName, tableName, numOccurrences, sleepTimeSeconds );
+	elog(DEBUG1, "FAULT INJECTED: Name %s Type %s, DDL %s, DB %s, Table %s, StartOccurrence %d, EndOccurrence %d, extraArg %d",
+		 faultName, type, ddlStatement, databaseName, tableName, startOccurrence, endOccurrence, extraArg);
 
 	strlcpy(faultInjectorEntry.faultName, faultName, sizeof(faultInjectorEntry.faultName));
 	faultInjectorEntry.faultInjectorIdentifier = FaultInjectorIdentifierStringToEnum(faultName);
@@ -3319,13 +3332,18 @@ processTransitionRequest_faultInject(void * inputBuf, int *offsetPtr, int length
 		goto exit;
 	}
 
-	faultInjectorEntry.sleepTime = sleepTimeSeconds;
-	if (sleepTimeSeconds < 0 || sleepTimeSeconds > 7200) {
-		ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-							errmsg("invalid sleep time, allowed range [0, 7200 sec]")));
+	faultInjectorEntry.extraArg = extraArg;
 
-		appendStringInfo(buf, "Failure: invalid sleep time, allowed range [0, 7200 sec]");
-		goto exit;
+	if (faultInjectorEntry.faultInjectorType == FaultInjectorTypeSleep)
+	{
+		if (extraArg < 0 || extraArg > 7200) {
+			ereport(COMMERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("invalid sleep time, allowed range [0, 7200 sec]")));
+
+			appendStringInfo(buf, "Failure: invalid sleep time, allowed range [0, 7200 sec]");
+			goto exit;
+		}
 	}
 
 	faultInjectorEntry.ddlStatement = FaultInjectorDDLStringToEnum(ddlStatement);
@@ -3341,15 +3359,28 @@ processTransitionRequest_faultInject(void * inputBuf, int *offsetPtr, int length
 
 	snprintf(faultInjectorEntry.tableName, sizeof(faultInjectorEntry.tableName), "%s", tableName);
 
-	faultInjectorEntry.occurrence = numOccurrences;
-	if (numOccurrences > 1000) {
-		ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-							errmsg("invalid occurrence number, allowed range [1, 1000]")));
+	if (startOccurrence > 1000)
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid start occurrence number, allowed range [1, 1000]")));
 
-		appendStringInfo(buf, "Failure: invalid occurrence number, allowed range [1, 1000]");
+		appendStringInfo(buf, "Failure: invalid start occurrence number, allowed range [1, 1000]");
 		goto exit;
 	}
 
+	if (endOccurrence != INFINITE_END_OCCURRENCE && endOccurrence < startOccurrence)
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid end occurrence number, allowed range [startOccurrence, ] or -1")));
+
+		appendStringInfo(buf, "Failure: invalid end occurrence number, allowed range [startOccurrence, ] or -1");
+		goto exit;
+	}
+
+	faultInjectorEntry.startOccurrence = startOccurrence;
+	faultInjectorEntry.endOccurrence = endOccurrence;
 
 	if (FaultInjector_SetFaultInjection(&faultInjectorEntry) == STATUS_OK) {
 		if (faultInjectorEntry.faultInjectorType == FaultInjectorTypeStatus) {
@@ -6457,6 +6488,7 @@ static void
 BackendInitialize(Port *port)
 {
 	int			status;
+	int			ret;
 	char		remote_host[NI_MAXHOST];
 	char		remote_port[NI_MAXSERV];
 	char		remote_ps_data[NI_MAXHOST];
@@ -6527,17 +6559,11 @@ BackendInitialize(Port *port)
 	 */
 	remote_host[0] = '\0';
 	remote_port[0] = '\0';
-	if (pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
+	if ((ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
 						   remote_host, sizeof(remote_host),
 						   remote_port, sizeof(remote_port),
-					   (log_hostname ? 0 : NI_NUMERICHOST) | NI_NUMERICSERV))
+					   (log_hostname ? 0 : NI_NUMERICHOST) | NI_NUMERICSERV)) != 0)
 	{
-		int			ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
-											 remote_host, sizeof(remote_host),
-											 remote_port, sizeof(remote_port),
-											 NI_NUMERICHOST | NI_NUMERICSERV);
-
-		if (ret)
 			ereport(WARNING,
 					(errmsg_internal("pg_getnameinfo_all() failed: %s",
 									 gai_strerror(ret))));
@@ -6558,6 +6584,23 @@ BackendInitialize(Port *port)
 	 */
 	port->remote_host = strdup(remote_host);
 	port->remote_port = strdup(remote_port);
+
+	/*
+	 * If we did a reverse lookup to name, we might as well save the results
+	 * rather than possibly repeating the lookup during authentication.
+	 *
+	 * Note that we don't want to specify NI_NAMEREQD above, because then we'd
+	 * get nothing useful for a client without an rDNS entry.  Therefore, we
+	 * must check whether we got a numeric IPv4 or IPv6 address, and not save
+	 * it into remote_hostname if so.  (This test is conservative and might
+	 * sometimes classify a hostname as numeric, but an error in that
+	 * direction is safe; it only results in a possible extra lookup.)
+	 */
+	if (log_hostname &&
+		ret == 0 &&
+		strspn(remote_host, "0123456789.") < strlen(remote_host) &&
+		strspn(remote_host, "0123456789ABCDEFabcdef:") < strlen(remote_host))
+		port->remote_hostname = strdup(remote_host);
 
 	/*
 	 * Ready to begin client interaction.  We will give up and exit(0) after a

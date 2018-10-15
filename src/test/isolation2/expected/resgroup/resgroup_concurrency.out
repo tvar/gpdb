@@ -392,47 +392,6 @@ DROP
 DROP RESOURCE GROUP rg_concurrency_test;
 DROP
 
--- test9: SET command should be bypassed
-DROP ROLE IF EXISTS role_concurrency_test;
-DROP
--- start_ignore
-DROP RESOURCE GROUP rg_concurrency_test;
-ERROR:  resource group "rg_concurrency_test" does not exist
--- end_ignore
-
-CREATE RESOURCE GROUP rg_concurrency_test WITH (concurrency=0, cpu_rate_limit=20, memory_limit=20);
-CREATE
-CREATE ROLE role_concurrency_test RESOURCE GROUP rg_concurrency_test;
-CREATE
-61: SET ROLE role_concurrency_test;
-SET
-61&: SELECT 1;  <waiting ...>
-ALTER RESOURCE GROUP rg_concurrency_test set concurrency 1;
-ALTER
-61<:  <... completed>
-?column?
---------
-1       
-(1 row)
-ALTER RESOURCE GROUP rg_concurrency_test set concurrency 0;
-ALTER
-61: SET enable_hashagg to on;
-SET
-61: SHOW enable_hashagg;
-enable_hashagg
---------------
-on            
-(1 row)
-61: invalid_syntax;
-ERROR:  syntax error at or near "invalid_syntax"
-LINE 1: invalid_syntax;
-        ^
-61q: ... <quitting>
-DROP ROLE role_concurrency_test;
-DROP
-DROP RESOURCE GROUP rg_concurrency_test;
-DROP
-
 --
 -- Test cursors, pl/* functions only take one slot.
 --
@@ -457,7 +416,20 @@ DECLARE
 DECLARE
 71:DECLARE c3 CURSOR for select count(*) from foo_concurrency_test t1, bar_concurrency_test t2 where t1.c2 = t2.c2;
 DECLARE
-71: 71:Fetch ALL FROM c1;
+71:Fetch ALL FROM c1;
+c1|c2
+--+--
+1 |1 
+2 |2 
+3 |3 
+4 |4 
+5 |5 
+6 |6 
+7 |7 
+8 |8 
+9 |9 
+10|10
+(10 rows)
 71:Fetch ALL FROM c2;
 c1|c2
 --+--

@@ -21,6 +21,7 @@
 #include "access/url.h"
 #include "access/xlog_internal.h"
 #include "cdb/cdbappendonlyam.h"
+#include "cdb/cdbcsv.h"
 #include "cdb/cdbdisp.h"
 #include "cdb/cdbfilerep.h"
 #include "cdb/cdbsreh.h"
@@ -121,6 +122,7 @@ static const char *assign_gp_default_storage_options(
 							const char *newval, bool doit, GucSource source);
 
 static bool assign_pljava_classpath_insecure(bool newval, bool doit, GucSource source);
+static bool assign_gp_resource_group_bypass(bool newval, bool doit, GucSource source);
 
 extern struct config_generic *find_option(const char *name, bool create_placeholders, int elevel);
 
@@ -369,6 +371,7 @@ bool		gp_debug_resqueue_priority = false;
 int			gp_resource_group_cpu_priority;
 double		gp_resource_group_cpu_limit;
 double		gp_resource_group_memory_limit;
+bool		gp_resource_group_bypass;
 
 /* Perfmon segment GUCs */
 int			gp_perfmon_segment_interval;
@@ -516,6 +519,8 @@ bool		optimizer_enable_multiple_distinct_aggs;
 bool		optimizer_enable_direct_dispatch;
 bool		optimizer_enable_hashjoin_redistribute_broadcast_children;
 bool		optimizer_enable_broadcast_nestloop_outer_child;
+bool		optimizer_enable_streaming_material;
+bool		optimizer_enable_gather_on_segment_for_dml;
 bool		optimizer_enable_assert_maxonerow;
 bool		optimizer_enable_constant_expression_evaluation;
 bool		optimizer_enable_bitmapscan;
@@ -603,7 +608,7 @@ char	   *gp_default_storage_options = NULL;
 
 int			writable_external_table_bufsize = 64;
 
-bool		gp_external_enable_filter_pushdown = false;
+bool		gp_external_enable_filter_pushdown = true;
 
 IndexCheckType gp_indexcheck_insert = INDEX_CHECK_NONE;
 IndexCheckType gp_indexcheck_vacuum = INDEX_CHECK_NONE;
@@ -2983,6 +2988,26 @@ struct config_bool ConfigureNamesBool_gp[] =
 		true, NULL, NULL
 	},
 	{
+		{"optimizer_enable_streaming_material", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable plans with a streaming material node in the optimizer."),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+		},
+		&optimizer_enable_streaming_material,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"optimizer_enable_gather_on_segment_for_dml", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable DML optimization by enforcing a non-master gather in the optimizer."),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+		},
+		&optimizer_enable_gather_on_segment_for_dml,
+		true,
+		NULL, NULL, NULL
+	},
+	{
 		{"optimizer_enforce_subplans", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Enforce correlated execution in the optimizer"),
 			NULL,
@@ -3307,7 +3332,17 @@ struct config_bool ConfigureNamesBool_gp[] =
 			GUC_GPDB_ADDOPT
 		},
 		&gp_external_enable_filter_pushdown,
-		false, NULL, NULL
+		true, NULL, NULL
+	},
+
+	{
+		{"gp_resource_group_bypass", PGC_USERSET, RESOURCES,
+			gettext_noop("If the value is true, the query in this session will not be limited by resource group."),
+			NULL
+		},
+		&gp_resource_group_bypass,
+		false,
+		assign_gp_resource_group_bypass, NULL
 	},
 
 	/* End-of-list marker */
@@ -3627,9 +3662,10 @@ struct config_int ConfigureNamesInt_gp[] =
 		{"gp_max_csv_line_length", PGC_USERSET, EXTERNAL_TABLES,
 			gettext_noop("Maximum allowed length of a csv input data row in bytes"),
 			NULL,
+			GUC_GPDB_ADDOPT
 		},
 		&gp_max_csv_line_length,
-		1 * 1024 * 1024, 32 * 1024, 4 * 1024 * 1024, NULL, NULL
+		1 * 1024 * 1024, 32 * 1024, MAX_GP_MAX_CSV_LINE_LENGTH, NULL, NULL
 	},
 
 	/*
@@ -4721,7 +4757,7 @@ struct config_int ConfigureNamesInt_gp[] =
 			GUC_SUPERUSER_ONLY |  GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE | GUC_GPDB_ADDOPT
 		},
 		&dtx_phase2_retry_count,
-		2, 0, 10, NULL, NULL
+		2, 0, 15, NULL, NULL
 	},
 
 	{
@@ -4969,7 +5005,7 @@ struct config_string ConfigureNamesString_gp[] =
 	{
 		{"explain_memory_verbosity", PGC_USERSET, RESOURCES_MEM,
 			gettext_noop("Experimental feature: show memory account usage in EXPLAIN ANALYZE."),
-			gettext_noop("Valid values are SUPPRESS, SUMMARY, and DETAIL."),
+			gettext_noop("Valid values are SUPPRESS, SUMMARY, DETAIL, and DEBUG."),
 			GUC_GPDB_ADDOPT
 		},
 		&explain_memory_verbosity_str,
@@ -5777,6 +5813,11 @@ assign_explain_memory_verbosity(const char *newval, bool doit, GucSource source)
 		if (doit)
 			explain_memory_verbosity = EXPLAIN_MEMORY_VERBOSITY_DETAIL;
 	}
+	else if (pg_strcasecmp(newval, "debug") == 0)
+	{
+		if (doit)
+			explain_memory_verbosity = EXPLAIN_MEMORY_VERBOSITY_DEBUG;
+	}
 	else
 	{
 		printf("Unknown memory verbosity.");
@@ -5868,6 +5909,16 @@ assign_gp_idf_deduplicate(const char *newval, bool doit, GucSource source)
 		return newval;
 	}
 	return NULL;
+}
+
+static bool
+assign_gp_resource_group_bypass(bool newval, bool doit, GucSource source)
+{
+	if (!ResGroupIsAssigned())
+		return true;
+
+	elog(ERROR, "SET gp_resource_group_bypass cannot run inside a transaction block");
+	return false;
 }
 
 static const char *

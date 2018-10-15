@@ -40,6 +40,7 @@
 #include "libpq-fe.h"
 #include "libpq-int.h"
 #include "libpq/ip.h"
+#include "cdb/cdbfts.h"
 
 /*
  * Helper Functions
@@ -257,15 +258,21 @@ getCdbComponentInfo(bool DNSLookupAsError)
 		else
 			pRow->filerep_port = -1;
 
+		pRow->hostip = NULL;
 		getAddressesForDBid(pRow, DNSLookupAsError ? ERROR : LOG);
 
-		/* We make sure we get a valid hostip here */
-		if(pRow->hostaddrs[0] == NULL)
-			elog(ERROR, "Cannot resolve network address for dbid=%d", dbid);
-		pRow->hostip = pstrdup(pRow->hostaddrs[0]);
-		Assert(strlen(pRow->hostip) <= INET6_ADDRSTRLEN);
+		/*
+		 * We make sure we get a valid hostip for primary here,
+		 * if hostip for mirrors can not be get, ignore the error.
+		 */
+		if (pRow->hostaddrs[0] == NULL && pRow->role == SEGMENT_ROLE_PRIMARY)
+			elog(DNSLookupAsError ? ERROR : LOG, "Cannot resolve network address for dbid=%d", dbid);
 
-		if (pRow->role != SEGMENT_ROLE_PRIMARY)
+		if (pRow->hostaddrs[0] != NULL)
+			pRow->hostip = pstrdup(pRow->hostaddrs[0]);
+		AssertImply(pRow->hostip, strlen(pRow->hostip) <= INET6_ADDRSTRLEN);
+
+		if (pRow->role != SEGMENT_ROLE_PRIMARY || pRow->hostip == NULL)
 			continue;
 
 		hsEntry = (HostSegsEntry*)hash_search(hostSegsHash, pRow->hostip, HASH_ENTER, &found);
@@ -392,7 +399,7 @@ getCdbComponentInfo(bool DNSLookupAsError)
 	{
 		cdbInfo = &component_databases->segment_db_info[i];
 
-		if (cdbInfo->role != SEGMENT_ROLE_PRIMARY)
+		if (cdbInfo->role != SEGMENT_ROLE_PRIMARY || cdbInfo->hostip == NULL)
 			continue;
 
 		hsEntry = (HostSegsEntry*)hash_search(hostSegsHash, cdbInfo->hostip, HASH_FIND, &found);
@@ -404,7 +411,7 @@ getCdbComponentInfo(bool DNSLookupAsError)
 	{
 		cdbInfo = &component_databases->entry_db_info[i];
 
-		if (cdbInfo->role != SEGMENT_ROLE_PRIMARY)
+		if (cdbInfo->role != SEGMENT_ROLE_PRIMARY || cdbInfo->hostip == NULL)
 			continue;
 
 		hsEntry = (HostSegsEntry*)hash_search(hostSegsHash, cdbInfo->hostip, HASH_FIND, &found);
@@ -427,7 +434,21 @@ getCdbComponentInfo(bool DNSLookupAsError)
 CdbComponentDatabases *
 getCdbComponentDatabases(void)
 {
-	return getCdbComponentInfo(true);
+	CdbComponentDatabases *cdbs;
+
+	PG_TRY();
+	{
+		cdbs = getCdbComponentInfo(true);
+	}
+	PG_CATCH();
+	{
+		FtsNotifyProber();
+
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return cdbs;
 }
 
 
@@ -444,6 +465,9 @@ freeCdbComponentDatabases(CdbComponentDatabases *pDBs)
 
 	if (pDBs == NULL)
 		return;
+
+	hash_destroy(segment_ip_cache_htab);
+	segment_ip_cache_htab = NULL;
 
 	if (pDBs->segment_db_info != NULL)
 	{
@@ -669,6 +693,16 @@ getDnsCachedAddress(char *name, int port, int elevel)
 		{
 			if (addrs)
 				pg_freeaddrinfo_all(hint.ai_family, addrs);
+
+			/*
+			 * If a host name is unknown, whether it is an error depends on its role:
+			 * - if it is a primary then it's an error;
+			 * - if it is a mirror then it's just a warning;
+			 * but we do not know the role information here, so always treat it as a
+			 * warning, the callers should check the role and decide what to do.
+			 */
+			if (ret != EAI_FAIL && elevel == ERROR)
+				elevel = WARNING;
 
 			ereport(elevel,
 					(errmsg("could not translate host name \"%s\", port \"%d\" to address: %s",

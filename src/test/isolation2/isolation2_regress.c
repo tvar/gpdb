@@ -9,6 +9,7 @@
 PG_MODULE_MAGIC;
 
 extern void flush_relation_buffers(PG_FUNCTION_ARGS);
+
 PG_FUNCTION_INFO_V1(flush_relation_buffers);
 
 void
