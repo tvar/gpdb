@@ -173,3 +173,76 @@ SELECT count(*)
 FROM mpp25537_facttable1 ft, mpp25537_dimdate dt, mpp25537_dimtabl1 dt1
 WHERE ft.wk_id = dt.wk_id
 AND ft.id = dt1.id;
+
+--
+-- Test NLJ with join conds on distr keys using equality, IS DISTINCT FROM & IS NOT DISTINCT FROM exprs
+--
+create table nlj1 (a int, b int);
+create table nlj2 (a int, b int);
+
+insert into nlj1 values (1, 1), (NULL, NULL);
+insert into nlj2 values (1, 5), (NULL, 6);
+
+set optimizer_enable_hashjoin=off;
+set enable_hashjoin=off; set enable_mergejoin=off; set enable_nestloop=on;
+
+explain select * from nlj1, nlj2 where nlj1.a = nlj2.a;
+select * from nlj1, nlj2 where nlj1.a = nlj2.a;
+
+explain select * from nlj1, nlj2 where nlj1.a is not distinct from nlj2.a;
+select * from nlj1, nlj2 where nlj1.a is not distinct from nlj2.a;
+
+explain select * from nlj1, (select NULL a, b from nlj2) other where nlj1.a is not distinct from other.a;
+select * from nlj1, (select NULL a, b from nlj2) other where nlj1.a is not distinct from other.a;
+
+explain select * from nlj1, nlj2 where nlj1.a is distinct from nlj2.a;
+select * from nlj1, nlj2 where nlj1.a is distinct from nlj2.a;
+
+reset optimizer_enable_hashjoin;
+reset enable_hashjoin; reset enable_mergejoin; reset enable_nestloop;
+drop table nlj1, nlj2;
+
+-- Test colocated equijoins on coerced distribution keys
+CREATE TABLE coercejoin (a varchar(10), b varchar(10)) DISTRIBUTED BY (a);
+-- Positive test, the join should be colocated as the implicit cast from the
+-- parse rewrite is a relabeling (varchar::text).
+EXPLAIN SELECT * FROM coercejoin a, coercejoin b WHERE a.a=b.a;
+-- Negative test, the join should not be colocated since the cast is a coercion
+-- which cannot guarantee that the coerced value would hash to the same segment
+-- as the uncoerced tuple.
+EXPLAIN SELECT * FROM coercejoin a, coercejoin b WHERE a.a::numeric=b.a::numeric;
+
+-- Do not push down any implied predicates to the Left Outer Join
+DROP TABLE IF EXISTS member;
+DROP TABLE IF EXISTS member_group;
+DROP TABLE IF EXISTS member_subgroup;
+DROP TABLE IF EXISTS region;
+
+CREATE TABLE member(member_id int NOT NULL, group_id int NOT NULL) DISTRIBUTED BY(member_id);
+CREATE TABLE member_group(group_id int NOT NULL) DISTRIBUTED BY(group_id);
+CREATE TABLE region(region_id char(4), county_name varchar(25)) DISTRIBUTED BY(region_id);
+CREATE TABLE member_subgroup(subgroup_id int NOT NULL, group_id int NOT NULL, subgroup_name text) DISTRIBUTED RANDOMLY;
+
+INSERT INTO region SELECT i, i FROM generate_series(1, 200) i;
+INSERT INTO member_group SELECT i FROM generate_series(1, 15) i;
+INSERT INTO member SELECT i, i%15 FROM generate_series(1, 10000) i;
+--start_ignore
+ANALYZE member;
+ANALYZE member_group;
+ANALYZE region;
+ANALYZE member_subgroup;
+--end_ignore
+EXPLAIN SELECT member.member_id
+FROM member
+INNER JOIN member_group
+ON member.group_id = member_group.group_id
+INNER JOIN member_subgroup
+ON member_group.group_id = member_subgroup.group_id
+LEFT OUTER JOIN region
+ON (member_group.group_id IN (12,13,14,15) AND member_subgroup.subgroup_name = region.county_name);
+
+
+DROP TABLE member;
+DROP TABLE member_group;
+DROP TABLE member_subgroup;
+DROP TABLE region;

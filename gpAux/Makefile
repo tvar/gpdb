@@ -119,7 +119,7 @@ SERVER_PLATFORMS=rhel5_x86_32 rhel5_x86_64 rhel7_x86_64 rhel6_x86_64 suse10_x86_
 ## Support gppkg platforms
 ##
 
-GPPKG_PLATFORMS=rhel5_x86_64 rhel7_x86_64 rhel6_x86_64 suse10_x86_64 suse11_x86_64 sles11_x86_64
+GPPKG_PLATFORMS=rhel5_x86_64 rhel7_x86_64 rhel6_x86_64 suse10_x86_64 suse11_x86_64 sles11_x86_64 ubuntu1604_amd64
 
 #---------------------------------------------------------------------
 # Compiler options
@@ -174,6 +174,7 @@ suse11_x86_64_CONFIGFLAGS=--enable-ddboost --enable-gpperfmon --with-gssapi ${OR
 sles11_x86_64_CONFIGFLAGS=--enable-ddboost --enable-gpperfmon --with-gssapi ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
 linux_x86_64_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} --with-libxml $(APR_CONFIG)
 osx106_x86_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} --with-libxml $(APR_CONFIG)
+ubuntu1604_amd64_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
 
 BLD_CONFIGFLAGS=$($(BLD_ARCH)_CONFIGFLAGS)
 
@@ -880,17 +881,23 @@ set_scripts_version :
 #---------------------------------------------------------------------
 
 mkgphdfs:
+ifneq ($(BLD_ARCH),$(filter $(BLD_ARCH),ubuntu1604_amd64))
 	@cd extensions && $(MAKE) mkgphdfs OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
+endif
 
 mkorafce:
+ifneq ($(BLD_ARCH),$(filter $(BLD_ARCH),ubuntu1604_amd64))
 	@cd extensions && $(MAKE) mkorafce OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
+endif
 
 mkpgbench:
+ifneq ($(BLD_ARCH),$(filter $(BLD_ARCH),ubuntu1604_amd64))
 	@cd $(BUILDDIR)/contrib/pgbench && $(MAKE) install
+endif
 
 mkpgbouncer:
-ifeq "$(shell uname -s)" "Darwin"
-	echo "pgbouncer can't build on Mac"
+ifeq ($(BLD_ARCH),$(filter $(BLD_ARCH),osx106_x86_64 ubuntu1604_amd64))
+	echo "pgbouncer can't build on $(BLD_ARCH)"
 else
 	@if [ ! -f extensions/pgbouncer/source/configure ]; then cd extensions/pgbouncer/source && ./autogen.sh ;fi
 	@cd extensions/pgbouncer/source && ./configure --with-libevent=$(BLD_TOP)/ext/$(BLD_ARCH) --prefix=$(INSTLOC) --enable-evdns --with-pam
@@ -1026,11 +1033,6 @@ else
 	cp -rp /usr/include/openssl $(INSTLOC)/include/
 	cp -rp /System/Library/OpenSSL/openssl.cnf $(INSTLOC)/etc/
 endif
-endif
-
-ifneq "$(BLD_ARCH)" "aix7_ppc_64"
-	# Copy glider stack trace capture tool
-	-cp -rp $(BLD_THIRDPARTY_BIN_DIR)/glider $(INSTLOC)/sbin/
 endif
 
 ifeq "$(BLD_ARCH)" "win32"

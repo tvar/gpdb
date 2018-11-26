@@ -45,6 +45,7 @@ groups:
   - compile_gpdb_centos7
   - compile_gpdb_sles11
   - compile_gpdb_ubuntu16
+  - compile_gpdb_open_source_ubuntu16
   - compile_gpdb_open_source_centos6
   - compile_gpdb_binary_swap_centos6
   - compile_gpdb_windows_cl
@@ -123,7 +124,6 @@ groups:
 {% if "UD" in test_sections %}
   ## --------------------------------------------------------------------
   - gate_ud_start
-  - regression_tests_pxf
   - regression_tests_gphdfs_hadoop_centos
   - regression_tests_gphdfs_mapr_centos
   - gate_ud_end
@@ -167,6 +167,7 @@ groups:
   - compile_gpdb_centos7
   - compile_gpdb_sles11
   - compile_gpdb_ubuntu16
+  - compile_gpdb_open_source_ubuntu16
   - compile_gpdb_open_source_centos6
   - compile_gpdb_binary_swap_centos6
   - compile_gpdb_windows_cl
@@ -283,7 +284,6 @@ groups:
 - name: G:UD
   jobs:
   - gate_ud_start
-  - regression_tests_pxf
   - regression_tests_gphdfs_hadoop_centos
   - regression_tests_gphdfs_mapr_centos
   - gate_ud_end
@@ -423,20 +423,12 @@ resources:
     private_key: {{gpaddon-git-key}}
     uri: {{gpaddon-git-remote}}
 
-{% if "UD" in test_sections %}
-- name: pxf_src
+- name: docker-in-concourse
   type: git
   source:
-    branch: {{pxf-git-branch}}
-    uri: {{pxf-git-remote}}
+    uri: git@github.com:pivotal/docker-in-concourse
+    private_key: {{docker-in-concourse-git-key}}
 
-- name: centos6-gpdb-dev-pxf-hdp
-  type: docker-image
-  source:
-    repository: pivotaldata/gpdb-pxf-dev
-    tag: centos6-hdp-server
-
-{% endif %}
 - name: debian_release
   type: git
   source:
@@ -465,13 +457,21 @@ resources:
   type: docker-image
   source:
     repository: pivotaldata/ubuntu-gpdb-dev
-    tag: '16.04_gcc_6_3'
+    tag: '16.04'
 
 - name: ubuntu-gpdb-debian-dev-16
   type: docker-image
   source:
     repository: pivotaldata/ubuntu-gpdb-debian-dev
     tag: '16.04'
+
+- name: ubuntu-gpcloud-dev-16
+  type: docker-image
+  source:
+    repository: pivotaldata/ubuntu-gpcloud-dev
+    tag: '16.04'
+    username: {{docker_username}}
+    password: {{docker_password}}
 
 - name: centos-mingw
   type: docker-image
@@ -543,17 +543,6 @@ resources:
     versioned_file: release_candidates/bin_gpdb_sles11/gpdb5/bin_gpdb.tar.gz
 
 {% endif %}
-{% if "UD" in test_sections %}
-- name: pxf_tarball
-  type: s3
-  source:
-    access_key_id: {{bucket-access-key-id}}
-    bucket: {{pxf-aws-bucket-name}}
-    region_name: {{aws-region}}
-    secret_access_key: {{bucket-secret-access-key}}
-    versioned_file: pxf_artifacts/prod/gpdb_branch_5X_STABLE/stable/pxf.tar.gz
-
-{% endif %}
 - name: compiled_bits_ubuntu16
   type: s3
   source:
@@ -589,6 +578,15 @@ resources:
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
     versioned_file: {{bin_gpdb_sles11_versioned_file}}
+
+- name: bin_gpdb_ubuntu16
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: {{bin_gpdb_ubuntu16_versioned_file}}
 
 - name: bin_gpdb_windows_clients
   type: s3
@@ -694,11 +692,20 @@ resources:
 - name: deb_package_ubuntu16
   type: s3
   source:
+    access_key_id: ((bucket-access-key-id))
+    bucket: ((bucket-name))
+    region_name: ((aws-region))
+    secret_access_key: ((bucket-secret-access-key))
+    regexp: deb_package_ubuntu16/greenplum-db_(.*)_amd64.deb
+
+- name: deb_package_open_source_ubuntu16
+  type: s3
+  source:
     access_key_id: {{bucket-access-key-id}}
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    versioned_file: {{deb_package_ubuntu16_versioned_file}}
+    versioned_file: {{deb_package_open_source_ubuntu16_versioned_file}}
 
 {% if "DPM" in test_sections %}
 - name: nightly-trigger
@@ -1046,6 +1053,7 @@ jobs:
     - get: centos-mingw
     - get: ubuntu-gpdb-dev-16
     - get: ubuntu-gpdb-debian-dev-16
+    - get: ubuntu-gpcloud-dev-16
 
 - name: compile_gpdb_centos6
   plan:
@@ -1182,6 +1190,31 @@ jobs:
     - get: gpdb_src
       passed: [gate_compile_start]
       trigger: ((gpdb_src-trigger-flag))
+    - get: gpaddon_src
+      passed: [gate_compile_start]
+    - get: docker-in-concourse
+    - get: ubuntu-gpcloud-dev-16
+      passed: [gate_compile_start]
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb_ubuntu16.yml
+    image: ubuntu-gpcloud-dev-16
+    privileged: true
+  - aggregate:
+    - put: bin_gpdb_ubuntu16
+      params:
+        file: gpdb_artifacts/bin_gpdb.tar.gz
+    - put: deb_package_ubuntu16
+      params:
+        file: gpdb_artifacts/greenplum-db*.deb
+
+- name: compile_gpdb_open_source_ubuntu16
+  plan:
+  - aggregate:
+    - get: reduced-frequency-trigger
+      trigger: ((reduced-frequency-trigger-flag))
+    - get: gpdb_src
+      passed: [gate_compile_start]
+      trigger: ((gpdb_src-trigger-flag))
     - get: ubuntu-gpdb-dev-16
       passed: [gate_compile_start]
     - get: ubuntu-gpdb-debian-dev-16
@@ -1204,9 +1237,9 @@ jobs:
     - put: compiled_bits_ubuntu16
       params:
         file: compiled_bits_ubuntu16/compiled_bits_ubuntu16.tar.gz
-    - put: deb_package_ubuntu16
+    - put: deb_package_open_source_ubuntu16
       params:
-        file: {{deb_package_ubuntu16_versioned_file}}
+        file: {{deb_package_open_source_ubuntu16_versioned_file}}
 
 - name: compile_gpdb_open_source_centos6
   public: true
@@ -1398,6 +1431,7 @@ jobs:
       - compile_gpdb_centos7
       - compile_gpdb_sles11
       - compile_gpdb_ubuntu16
+      - compile_gpdb_open_source_ubuntu16
       trigger: true
     - get: bin_gpdb_sles11
       passed:
@@ -1413,10 +1447,10 @@ jobs:
       - compile_gpdb_centos6
     - get: compiled_bits_ubuntu16
       passed:
-      - compile_gpdb_ubuntu16
-    - get: deb_package_ubuntu16
+      - compile_gpdb_open_source_ubuntu16
+    - get: deb_package_open_source_ubuntu16
       passed:
-      - compile_gpdb_ubuntu16
+      - compile_gpdb_open_source_ubuntu16
 
 {% if "ICW" in test_sections %}
 ## ======================================================================
@@ -1449,7 +1483,7 @@ jobs:
       - get: compiled_bits_ubuntu16
         passed:
         - gate_compile_end
-      - get: deb_package_ubuntu16
+      - get: deb_package_open_source_ubuntu16
         passed:
         - gate_compile_end
 
@@ -1647,7 +1681,7 @@ jobs:
       passed:
       - gate_icw_start
     - get: ubuntu-gpdb-debian-dev-16
-    - get: deb_package_ubuntu16
+    - get: deb_package_open_source_ubuntu16
       passed:
       - gate_icw_start
       trigger: [[ test_trigger ]]
@@ -1655,7 +1689,7 @@ jobs:
     file: gpdb_src/concourse/tasks/deb_test_package.yml
     image: ubuntu-gpdb-debian-dev-16
     params:
-      DEBIAN_PACKAGE: {{deb_package_ubuntu16_versioned_file}}
+      DEBIAN_PACKAGE: {{deb_package_open_source_ubuntu16_versioned_file}}
 
 - name: icw_extensions_gpcloud
   plan:
@@ -3288,28 +3322,6 @@ jobs:
       passed:
       - gate_compile_end
 
-- name: regression_tests_pxf
-  plan:
-  - aggregate:
-    - get: gpdb_src
-      passed: [gate_ud_start]
-    - get: bin_gpdb
-      resource: bin_gpdb_centos6
-      passed: [gate_ud_start]
-      trigger: [[ test_trigger ]]
-    - get: pxf_tarball
-      trigger: [[ test_trigger ]]
-    - get: pxf_src
-    - get: centos6-gpdb-dev-pxf-hdp
-  - task: test_pxf
-    file: pxf_src/concourse/tasks/test_pxf.yml
-    image: centos6-gpdb-dev-pxf-hdp
-    params:
-      GROUP: smoke
-      HADOOP_CLIENT: HDP
-      TARGET_OS: centos
-      TARGET_OS_VERSION: 6
-
 - name: regression_tests_gphdfs_hadoop_centos
   plan:
   - aggregate:
@@ -3366,7 +3378,6 @@ jobs:
   - aggregate:
     - get: gpdb_src
       passed: &gate_ud_end
-      - regression_tests_pxf
       - regression_tests_gphdfs_hadoop_centos
       - regression_tests_gphdfs_mapr_centos
       trigger: true
@@ -3606,6 +3617,7 @@ jobs:
       - compile_gpdb_centos7
       - compile_gpdb_sles11
       - compile_gpdb_ubuntu16
+      - compile_gpdb_open_source_ubuntu16
       - compile_gpdb_windows_cl
       - compile_gpdb_aix7_remote
       - icw_planner_centos6
@@ -3641,7 +3653,6 @@ jobs:
       - QP_memory-accounting
       - regression_tests_gphdfs_hadoop_centos
       - regression_tests_gphdfs_mapr_centos
-      - regression_tests_pxf
       - DPM_backup-restore_ddboost_part1
       - DPM_backup-restore_ddboost_part2
       - DPM_backup-restore_ddboost_part3
