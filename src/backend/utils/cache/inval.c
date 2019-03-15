@@ -1252,7 +1252,7 @@ CacheInvalidateRelcache(Relation relation)
 void
 CacheInvalidateRelcacheAll(void)
 {
-	PrepareInvalidationState();
+	//PrepareInvalidationState();
 
 	RegisterRelcacheInvalidation(InvalidOid, InvalidOid);
 }
