@@ -371,8 +371,11 @@ AddSmgrInvalidationMessage(InvalidationListHeader *hdr,
 
 	/* Don't add a duplicate item */
 	ProcessMessageList(hdr->rclist,
-					   if (msg->sm.id == SHAREDINVALSMGR_ID &&
-						   RelFileNodeEquals(msg->sm.rnode, rnode))
+					   if ((msg->sm.id == SHAREDINVALSMGR_ID &&
+						    RelFileNodeEquals(msg->sm.rnode, rnode)) ||
+							/*if full cache invalidated all smgr will be closed*/
+							(msg->rc.id == SHAREDINVALRELCACHE_ID &&
+						     msg->rc.relId == InvalidOid))
 					   return);
 
 	/* OK, add the item */
