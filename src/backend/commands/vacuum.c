@@ -3536,6 +3536,17 @@ repair_frag(VRelStats *vacrelstats, Relation onerel,
 	vacpage->offsets_used = vacpage->offsets_free = 0;
 
 	/*
+	 * Vacuum full pg_class and pg_attribute invalidate whole relcache at the end of command.
+	 */
+	switch (RelationGetRelid(onerel))
+	{
+		case RelationRelationId:
+		case AttributeRelationId:
+			CacheInvalidateRelcacheAll();
+			break;
+	}
+
+	/*
 	 * Scan pages backwards from the last nonempty page, trying to move tuples
 	 * down to lower pages.  Quit when we reach a page that we have moved any
 	 * tuples onto, or the first page if we haven't moved anything, or when we
@@ -3545,6 +3556,7 @@ repair_frag(VRelStats *vacrelstats, Relation onerel,
 	 * NB: this code depends on the vacuum_pages and fraged_pages lists being
 	 * in order by blkno.
 	 */
+	
 	nblocks = vacrelstats->rel_pages;
 	for (blkno = nblocks - vacuum_pages->empty_end_pages - 1;
 		 blkno > last_move_dest_block;

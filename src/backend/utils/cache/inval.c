@@ -342,11 +342,15 @@ AddRelcacheInvalidationMessage(InvalidationListHeader *hdr,
 {
 	SharedInvalidationMessage msg;
 
-	/* Don't add a duplicate item */
-	/* We assume dbId need not be checked because it will never change */
+	/*
+	 * Don't add a duplicate item. We assume dbId need not be checked because
+	 * it will never change. InvalidOid for relId means all relations so we
+	 * don't need to add individual ones when it is present.
+	 */
 	ProcessMessageList(hdr->rclist,
 					   if (msg->rc.id == SHAREDINVALRELCACHE_ID &&
-						   msg->rc.relId == relId)
+						   (msg->rc.relId == relId ||
+							msg->rc.relId == InvalidOid))
 					   return);
 
 	/* OK, add the item */
@@ -455,10 +459,12 @@ RegisterRelcacheInvalidation(Oid dbId, Oid relId)
 	(void) GetCurrentCommandId(true);
 
 	/*
-	 * If the relation being invalidated is one of those cached in the
-	 * relcache init file, mark that we need to zap that file at commit.
+	 * If the relation being invalidated is one of those cached in a relcache
+	 * init file, mark that we need to zap that file at commit. For simplicity
+	 * invalidations for a specific database always invalidate the shared file
+	 * as well.  Also zap when we are invalidating whole relcache.
 	 */
-	if (RelationIdIsInInitFile(relId))
+	if (relId == InvalidOid || RelationIdIsInInitFile(relId))
 		transInvalInfo->RelcacheInitFileInval = true;
 }
 
@@ -545,7 +551,10 @@ LocalExecuteInvalidationMessage(SharedInvalidationMessage *msg)
 	{
 		if (msg->rc.dbId == MyDatabaseId || msg->rc.dbId == InvalidOid)
 		{
-			RelationCacheInvalidateEntry(msg->rc.relId);
+			if (msg->rc.relId == InvalidOid)
+				RelationCacheInvalidate();
+			else
+				RelationCacheInvalidateEntry(msg->rc.relId);
 
 			for (i = 0; i < relcache_callback_count; i++)
 			{
@@ -1231,6 +1240,21 @@ CacheInvalidateRelcache(Relation relation)
 
 	RegisterRelcacheInvalidation(databaseId, relationId);
 	RegisterSmgrInvalidation(relation->rd_node);
+}
+
+/*
+ * CacheInvalidateRelcacheAll
+ *		Register invalidation of the whole relcache at the end of command.
+ *
+ * This is used by alter publication as changes in publications may affect
+ * large number of tables.
+ */
+void
+CacheInvalidateRelcacheAll(void)
+{
+	PrepareInvalidationState();
+
+	RegisterRelcacheInvalidation(InvalidOid, InvalidOid);
 }
 
 /*
