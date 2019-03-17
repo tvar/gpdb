@@ -231,7 +231,12 @@ AddInvalidationMessage(InvalidationChunk **listHdr,
 	else if (chunk->nitems >= chunk->maxitems)
 	{
 		/* Need another chunk; double size of last chunk */
-		int			chunksize = 2 * chunk->maxitems;
+		int			chunksize = chunk->maxitems;
+		
+		/* Limit max chunk size */ 
+		if (chunksize < 100000) {
+			chunksize = chunksize * 2;
+		}
 
 		chunk = (InvalidationChunk *)
 			MemoryContextAlloc(CurTransactionContext,
