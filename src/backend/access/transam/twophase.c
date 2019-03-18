@@ -1163,7 +1163,7 @@ save_state_data(const void *data, uint32 len)
 	records.bytes_free -= padlen;
 	records.total_len += padlen;
 	if (!AllocSizeIsValid(records.total_len)) {
-		elog(WARNING, "XLog list too large: %d", records.total_len);
+		elog(WARNING, "XLog list too large: %u", records.total_len);
 	}
 }
 
