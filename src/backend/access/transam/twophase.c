@@ -1162,6 +1162,9 @@ save_state_data(const void *data, uint32 len)
 	records.tail->len += padlen;
 	records.bytes_free -= padlen;
 	records.total_len += padlen;
+	if (records.total_len >= MaxAllocSize) {
+		elog(WARNING, "XLog list too large: %d", records.total_len);
+	}
 }
 
 /*
