@@ -25,7 +25,7 @@
 #include "postgres_fe.h"
 
 /* It's possible we could use a different value for this in frontend code */
-#define MaxAllocSize	((Size) 0xBFFFFFFF) /* 3 gigabyte - 1 */
+#define MaxAllocSize	((Size) 0x7FFFFFFF) /* 2 gigabyte - 1 */
 
 #endif
 
