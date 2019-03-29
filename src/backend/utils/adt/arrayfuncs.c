@@ -818,8 +818,8 @@ ReadArrayStr(char *arrayStr,
 			if (!AllocSizeIsValid(totbytes))
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("array size exceeds the maximum allowed (%d)",
-								(int) MaxAllocSize)));
+						 errmsg("array size exceeds the maximum allowed (%ld)",
+								(long) MaxAllocSize)));
 		}
 	}
 	*hasnulls = hasnull;
@@ -1406,8 +1406,8 @@ ReadArrayBinary(StringInfo buf,
 			if (!AllocSizeIsValid(totbytes))
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("array size exceeds the maximum allowed (%d)",
-								(int) MaxAllocSize)));
+						 errmsg("array size exceeds the maximum allowed (%ld)",
+								(long) MaxAllocSize)));
 		}
 	}
 	*hasnulls = hasnull;
@@ -2728,8 +2728,8 @@ array_map(FunctionCallInfo fcinfo, Oid inpType, Oid retType,
 			if (!AllocSizeIsValid(nbytes))
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("array size exceeds the maximum allowed (%d)",
-								(int) MaxAllocSize)));
+						 errmsg("array size exceeds the maximum allowed (%ld)",
+								(long) MaxAllocSize)));
 		}
 
 		/* advance bitmap pointer if any */
@@ -2917,8 +2917,8 @@ construct_md_array(Datum *elems,
 			if (!AllocSizeIsValid(nbytes))
 				ereport(ERROR,
 						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("array size exceeds the maximum allowed (%d)",
-								(int) MaxAllocSize)));
+						 errmsg("array size exceeds the maximum allowed (%ld)",
+								(long) MaxAllocSize)));
 		}
 	}
 
@@ -4714,8 +4714,8 @@ array_fill_internal(ArrayType *dims, ArrayType *lbs,
 			!AllocSizeIsValid(totbytes))
 			ereport(ERROR,
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-					 errmsg("array size exceeds the maximum allowed (%d)",
-							(int) MaxAllocSize)));
+					 errmsg("array size exceeds the maximum allowed (%ld)",
+							(long) MaxAllocSize)));
 
 		/*
 		 * This addition can't overflow, but it might cause us to go past

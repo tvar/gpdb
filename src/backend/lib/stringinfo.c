@@ -277,7 +277,7 @@ enlargeStringInfo(StringInfo str, int needed)
 	 */
 	if (needed < 0)				/* should not happen */
 		elog(ERROR, "invalid string enlargement request size: %d", needed);
-	if (((Size) needed) >= (MaxAllocSize - (Size) str->len))
+	if (((Size) needed) >= (MaxAllocSizeInt - (Size) str->len))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 				 errmsg("out of memory"),
@@ -305,13 +305,13 @@ enlargeStringInfo(StringInfo str, int needed)
 	 * here that MaxAllocSize <= INT_MAX/2, else the above loop could
 	 * overflow.  We will still have newlen >= needed.
 	 */
-	if (newlen >= (int) MaxAllocSize)
+	if (newlen >= (int) MaxAllocSizeInt)
 	{
 		/*
 		 * Currently we support allocations only up to MaxAllocSize - 1
 		 * (see AllocSizeIsValid()).
 		 */
-		newlen = (int) MaxAllocSize - 1;
+		newlen = (int) MaxAllocSizeInt - 1;
 	}
 
 	str->data = (char *) repalloc(str->data, newlen);
