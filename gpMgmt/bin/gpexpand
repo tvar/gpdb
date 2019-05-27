@@ -1777,7 +1777,15 @@ Set PGDATABASE or use the -D option to specify the correct database to use.""" %
         Build the list of delete statements based on the MASTER_ONLY_TABLES
         defined in gpcatalog.py
         """
-        statements = ["delete from pg_catalog.%s" % tab for tab in MASTER_ONLY_TABLES]
+        statements = ["set allow_system_table_mods='ALL'",
+          "truncate table pg_catalog.gp_distribution_policy",
+          "truncate table pg_catalog.pg_description",
+          "truncate table pg_catalog.pg_listener",
+          "truncate table pg_catalog.pg_partition",
+          "truncate table pg_catalog.pg_partition_rule",
+          "truncate table pg_catalog.pg_stat_last_operation",
+          "truncate table pg_catalog.pg_statistic",
+          "truncate table pg_catalog.pg_partition_encoding"] + ["delete from pg_catalog.%s" % tab for tab in MASTER_ONLY_TABLES]
 
         """
           Connect to each database in the new segments, and clean up the catalog tables.
