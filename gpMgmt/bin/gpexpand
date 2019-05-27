@@ -2072,36 +2072,26 @@ WHERE
 
     def _populate_partitioned_tables(self, dbname):
         """population of status_detail for partitioned tables. """
-        src_bytes_str = "0" if self.options.simple_progress else "pg_relation_size(quote_ident(p.partitionschemaname) || '.' || quote_ident(p.partitiontablename))"
+        src_bytes_str = "0" if self.options.simple_progress else "pg_relation_size(cl2.oid)"
         sql = """
-SELECT
-    p.partitionschemaname || '.' || p.partitiontablename as fq_name,
-    n.oid as schemaoid,
-    c2.oid as tableoid,
-    d.attrnums as distributed_policy,
-    now() as last_updated,
-    %s,
-    partitiontype,partitionlevel,partitionrank,partitionposition,
-    partitionrangestart
-FROM
-    pg_partitions p,
-    pg_class c,
-    pg_class c2,
-    pg_namespace n,
-    pg_namespace n2,
-    gp_distribution_policy d
-WHERE
-    quote_ident(p.tablename) = quote_ident(c.relname)
-    AND    d.localoid = c2.oid
-    AND quote_ident(p.schemaname) = quote_ident(n.nspname)
-    AND c.relnamespace = n.oid
-    AND p.partitionlevel = (select max(parlevel) FROM pg_partition WHERE parrelid = c.oid)
-    AND quote_ident(p.partitionschemaname) = quote_ident(n2.nspname)
-    AND quote_ident(p.partitiontablename) = quote_ident(c2.relname)
-    AND c2.relnamespace = n2.oid
-    AND c2.relstorage != 'x'
-ORDER BY tablename, c2.oid desc;
-                  """ % (src_bytes_str)
+select 
+  n2.nspname|| '.' ||cl2.relname  as fq_name,
+  n.oid as schemaoid,
+  cl2.oid as tableoid,
+  d.attrnums as distributed_policy,
+  now() as last_updated,
+  %s
+FROM pg_partition pp
+   JOIN pg_class cl ON pp.parrelid = cl.oid
+   JOIN pg_partition_rule pr1 ON pr1.paroid = pp.oid
+     LEFT JOIN pg_partition_rule pr2 ON pr2.parparentrule = pr1.oid
+   JOIN pg_class cl2 ON cl2.oid = pr1.parchildrelid and cl2.relstorage <> 'x'
+   JOIN pg_namespace n ON cl.relnamespace = n.oid
+   JOIN pg_namespace n2 ON cl2.relnamespace = n2.oid
+   JOIN gp_distribution_policy d ON d.localoid = cl2.oid
+where 
+   pr2.oid is null  
+ORDER BY cl.relname, cl2.oid desc """ % (src_bytes_str)
         self.logger.debug(sql)
         table_conn = self.connect_database(dbname)
         curs = dbconn.execSQL(table_conn, sql)
