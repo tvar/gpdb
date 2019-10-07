@@ -5,4 +5,11 @@ git pull
 ../configure --prefix=$(pwd)/../../depends/build
 make clean
 make install
+
+../configure
+make clean
+make install
+
+
+
 popd
