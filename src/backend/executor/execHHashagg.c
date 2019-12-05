@@ -1636,7 +1636,11 @@ writeHashEntry(AggState *aggstate, BatchFileInfo *file_info,
 
 		if ((aggDataOffset + MAXALIGN(datum_size)) >= aggDataBufferSize)
 		{
-			aggDataBufferSize += BUFFER_INCREMENT_SIZE;
+			if (MAXALIGN(datum_size) > BUFFER_INCREMENT_SIZE) {
+				aggDataBufferSize += MAXALIGN(datum_size);
+			} else {
+				aggDataBufferSize += BUFFER_INCREMENT_SIZE;
+			}
 			MemoryContext oldAggContext = MemoryContextSwitchTo(TopMemoryContext);
 			aggDataBuffer = repalloc(aggDataBuffer, aggDataBufferSize);
 			MemoryContextSwitchTo(oldAggContext);
