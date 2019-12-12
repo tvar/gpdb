@@ -39,12 +39,7 @@
 #include "cdb/cdbexplain.h"
 #include "cdb/cdbvars.h"
 
-#define DEFAULT_BUFFER_INCREMENT_SIZE 1024
-#define BUFFER_INCREMENT_SIZE(write_size) \
-	MAXALIGN(write_size) >= DEFAULT_BUFFER_INCREMENT_SIZE ? \
-		MAXALIGN(write_size) + DEFAULT_BUFFER_INCREMENT_SIZE : \
-		DEFAULT_BUFFER_INCREMENT_SIZE
-
+#define BUFFER_INCREMENT_SIZE 1024
 #define HHA_MSG_LVL DEBUG2
 
 
@@ -1576,7 +1571,7 @@ writeHashEntry(AggState *aggstate, BatchFileInfo *file_info,
 	 * with 1024 whenever the buffer + datum_size exceeds the current buffer size
 	 */
 	static char *aggDataBuffer = NULL;
-	static int aggDataBufferSize = DEFAULT_BUFFER_INCREMENT_SIZE;
+	static int aggDataBufferSize = BUFFER_INCREMENT_SIZE;
 	int32 aggDataOffset = 0;
 	if (aggDataBuffer == NULL)
 		aggDataBuffer = MemoryContextAlloc(TopMemoryContext, aggDataBufferSize);
@@ -1641,7 +1636,8 @@ writeHashEntry(AggState *aggstate, BatchFileInfo *file_info,
 
 		if ((aggDataOffset + MAXALIGN(datum_size)) >= aggDataBufferSize)
 		{
-			aggDataBufferSize += BUFFER_INCREMENT_SIZE(datum_size);
+			aggDataBufferSize += MAXALIGN(datum_size) >= BUFFER_INCREMENT_SIZE ?
+				MAXALIGN(datum_size) + BUFFER_INCREMENT_SIZE : BUFFER_INCREMENT_SIZE;
 			MemoryContext oldAggContext = MemoryContextSwitchTo(TopMemoryContext);
 			aggDataBuffer = repalloc(aggDataBuffer, aggDataBufferSize);
 			MemoryContextSwitchTo(oldAggContext);
